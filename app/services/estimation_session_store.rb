@@ -3,7 +3,7 @@ class EstimationSessionStore
   SESSION_KEY = "estimation_session_state"
   PRESENCE_KEY = "estimation_session_presence"
   EXPIRY = 30.minutes
-  PRESENCE_EXPIRY = 45.seconds # Increased from 30 to give more buffer
+  PRESENCE_EXPIRY = 45.seconds
 
   class << self
     def get_state
@@ -48,7 +48,6 @@ class EstimationSessionStore
       presence[connection_id] = Time.current.to_i
       save_presence(presence)
       Rails.logger.info("Connection added: #{connection_id}. Total: #{presence.count}")
-      # Don't broadcast here - let the channel handle it like other events
     end
 
     def remove_connection(connection_id)
@@ -56,7 +55,6 @@ class EstimationSessionStore
       presence.delete(connection_id)
       save_presence(presence)
       Rails.logger.info("Connection removed: #{connection_id}. Total: #{presence.count}")
-      # Don't broadcast here - let the channel handle it like other events
     end
 
     def heartbeat(connection_id)
@@ -95,6 +93,8 @@ class EstimationSessionStore
     end
 
     private
+
+    def default_state
       {
         ticket_data: nil,
         ticket_title: nil,
