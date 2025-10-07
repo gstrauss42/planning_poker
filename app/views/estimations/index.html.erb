@@ -527,8 +527,7 @@
           console.log("Connected to estimation channel");
           showStatus("Connected");
           
-          // Fetch initial state (votes, ticket data)
-          fetchInitialState();
+          // Server sends initial state via transmit_current_state
           
           // Start sending heartbeats every 10 seconds
           this.startHeartbeat();
@@ -542,12 +541,16 @@
           
           if (data.action === "submit") {
             updateVote(data.user_name, data.points);
+            showStatus(`${data.user_name} voted`);
           } else if (data.action === "reveal") {
             revealVotes();
+            showStatus("All estimates revealed!");
           } else if (data.action === "clear") {
             clearVotes();
+            showStatus("Votes cleared!");
           } else if (data.action === "set_ticket") {
             updateTicketData(data.ticket_data, data.ticket_title);
+            showStatus("Ticket updated");
           } else if (data.action === "presence_update") {
             connectedCount = data.connected_count;
             updatePresenceBadge();
