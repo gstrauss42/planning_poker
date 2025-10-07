@@ -452,8 +452,53 @@
 
     // Helper function to update ticket data and render
     function updateTicketData(ticketData, ticketTitle) {
+      console.log("Updating ticket data:", ticketData, ticketTitle);
       currentTicketData = ticketData || null;
       renderTicket();
+    }
+
+    // Fetch initial session state on page load
+    async function fetchInitialState() {
+      try {
+        const response = await fetch("/estimations/session_state");
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const state = await response.json();
+        console.log("Initial state loaded:", state);
+        
+        // Load ticket data
+        if (state.ticket_data || state.ticket_title) {
+          updateTicketData(state.ticket_data, state.ticket_title);
+        }
+        
+        // Load votes
+        if (state.votes) {
+          Object.keys(votes).forEach(key => delete votes[key]);
+          Object.assign(votes, state.votes);
+          renderVotes();
+        }
+        
+        // Load revealed state
+        if (state.revealed) {
+          revealed = true;
+          renderVotes();
+        }
+        
+        // Load presence counts
+        if (typeof state.connected_count !== 'undefined') {
+          connectedCount = state.connected_count;
+        }
+        if (typeof state.voted_count !== 'undefined') {
+          votedCount = state.voted_count;
+        }
+        updatePresenceBadge();
+        
+        console.log("Initial state applied successfully");
+      } catch (error) {
+        console.error("Error fetching initial state:", error);
+      }
     }
 
     // Helper function to update vote data and render
@@ -787,9 +832,10 @@
       }
     });
 
-    // Initial render
+    // Initial render and load state
     renderVotes();
     renderTicket();
+    fetchInitialState();
   </script>
 </body>
 </html>

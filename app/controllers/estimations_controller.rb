@@ -126,6 +126,11 @@ class EstimationsController < ApplicationController
 
   def get_session_state
     state = EstimationSessionStore.get_state
-    render json: state
+    
+    # Include presence counts in the state
+    render json: state.merge(
+      connected_count: EstimationSessionStore.connected_count,
+      voted_count: EstimationSessionStore.voted_count
+    )
   end
 end
