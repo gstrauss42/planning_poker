@@ -24,8 +24,7 @@ class EstimationsController < ApplicationController
       "estimation_session",
       {
         action: "presence_update",
-        connected_count: EstimationSessionStore.connected_count,
-        voted_count: EstimationSessionStore.voted_count
+        connected_count: EstimationSessionStore.connected_count
       }
     )
 
@@ -60,8 +59,7 @@ class EstimationsController < ApplicationController
       "estimation_session",
       {
         action: "presence_update",
-        connected_count: EstimationSessionStore.connected_count,
-        voted_count: EstimationSessionStore.voted_count
+        connected_count: EstimationSessionStore.connected_count
       }
     )
 
@@ -127,10 +125,7 @@ class EstimationsController < ApplicationController
   def get_session_state
     state = EstimationSessionStore.get_state
     
-    # Include presence counts in the state
-    render json: state.merge(
-      connected_count: EstimationSessionStore.connected_count,
-      voted_count: EstimationSessionStore.voted_count
-    )
+    # Don't include presence counts here - they should only come from ActionCable broadcasts
+    render json: state
   end
 end

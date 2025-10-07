@@ -113,8 +113,7 @@ class EstimationSessionStore
         "estimation_session",
         {
           action: "presence_update",
-          connected_count: connected_count,
-          voted_count: voted_count
+          connected_count: connected_count
         }
       )
     end

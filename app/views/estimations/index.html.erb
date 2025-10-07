@@ -419,7 +419,6 @@
     let revealed = false;
     let currentTicketData = null;
     let connectedCount = 0;
-    let votedCount = 0;
     let subscription = null;
     const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 
@@ -440,10 +439,12 @@
 
     function updatePresenceBadge() {
       const badge = document.getElementById("presenceBadge");
-      badge.textContent = `${votedCount}/${connectedCount} voted`;
+      // Calculate voted count from local votes object
+      const currentVotedCount = Object.keys(votes).length;
+      badge.textContent = `${currentVotedCount}/${connectedCount} voted`;
       
       // Turn green when everyone has voted
-      if (connectedCount > 0 && votedCount === connectedCount) {
+      if (connectedCount > 0 && currentVotedCount === connectedCount) {
         badge.classList.add("all-voted");
       } else {
         badge.classList.remove("all-voted");
@@ -478,6 +479,7 @@
           Object.keys(votes).forEach(key => delete votes[key]);
           Object.assign(votes, state.votes);
           renderVotes();
+          updatePresenceBadge(); // Update badge after loading votes
         }
         
         // Load revealed state
@@ -486,14 +488,7 @@
           renderVotes();
         }
         
-        // Load presence counts
-        if (typeof state.connected_count !== 'undefined') {
-          connectedCount = state.connected_count;
-        }
-        if (typeof state.voted_count !== 'undefined') {
-          votedCount = state.voted_count;
-        }
-        updatePresenceBadge();
+        // Note: connected_count comes ONLY from ActionCable broadcasts
         
         console.log("Initial state applied successfully");
       } catch (error) {
@@ -505,6 +500,7 @@
     function updateVote(userName, points) {
       votes[userName] = points;
       renderVotes();
+      updatePresenceBadge(); // Update badge when votes change
     }
 
     // Helper function to reveal votes
@@ -518,6 +514,7 @@
       Object.keys(votes).forEach(key => delete votes[key]);
       revealed = false;
       renderVotes();
+      updatePresenceBadge(); // Update badge when votes are cleared
     }
 
     // Create Action Cable consumer
@@ -557,7 +554,6 @@
             showStatus("Ticket updated");
           } else if (data.action === "presence_update") {
             connectedCount = data.connected_count;
-            votedCount = data.voted_count;
             updatePresenceBadge();
           }
         },
