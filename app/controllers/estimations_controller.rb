@@ -19,8 +19,9 @@ class EstimationsController < ApplicationController
     ActionCable.server.broadcast(
       "estimation_session",
       {
-        action: "votes_updated",
+        action: "state_updated",
         votes: state[:votes],
+        revealed: state[:revealed],
         voted_count: state[:votes].count,
         connected_count: EstimationSessionStore.connected_count
       }
@@ -33,13 +34,15 @@ class EstimationsController < ApplicationController
     # Update session and get state
     state = EstimationSessionStore.reveal
 
-    # Broadcast to ALL clients
+    # Broadcast complete state to ALL clients
     ActionCable.server.broadcast(
       "estimation_session",
       {
-        action: "reveal_updated",
-        revealed: true,
-        votes: state[:votes]
+        action: "state_updated",
+        votes: state[:votes],
+        revealed: state[:revealed],
+        voted_count: state[:votes].count,
+        connected_count: EstimationSessionStore.connected_count
       }
     )
 
@@ -50,11 +53,11 @@ class EstimationsController < ApplicationController
     # Clear votes in session
     state = EstimationSessionStore.clear_votes
 
-    # Broadcast to ALL clients
+    # Broadcast complete state to ALL clients
     ActionCable.server.broadcast(
       "estimation_session",
       {
-        action: "votes_cleared",
+        action: "state_updated",
         votes: {},
         revealed: false,
         voted_count: 0,
@@ -77,21 +80,26 @@ class EstimationsController < ApplicationController
       jira_service = JiraService.new
       ticket_data = jira_service.fetch_ticket(jira_input)
       
-      # Store in session
-      EstimationSessionStore.set_ticket(ticket_data, ticket_data[:formatted_title])
+      # Store in session - this will clear votes and revealed state
+      state = EstimationSessionStore.set_ticket(ticket_data, ticket_data[:formatted_title])
       
-      # Broadcast to ALL clients with complete ticket data
+      # Broadcast complete new state to ALL clients
       ActionCable.server.broadcast(
         "estimation_session",
         {
-          action: "ticket_updated",
+          action: "ticket_changed",
           ticket_data: ticket_data,
-          ticket_title: ticket_data[:formatted_title]
+          ticket_title: ticket_data[:formatted_title],
+          votes: {},  # Votes are cleared when ticket changes
+          revealed: false,  # Reset reveal state
+          voted_count: 0,
+          connected_count: EstimationSessionStore.connected_count
         }
       )
 
       render json: { 
-        success: true
+        success: true,
+        message: "Ticket loaded, votes cleared"
       }
     rescue JiraService::JiraError => e
       Rails.logger.error("JIRA fetch error: #{e.message}")

@@ -11,13 +11,18 @@ class EstimationSessionStore
       state || default_state
     end
 
+    # When setting a new ticket, clear votes and reveal state
     def set_ticket(ticket_data, ticket_title)
       state = get_state
       state[:ticket_data] = ticket_data
       state[:ticket_title] = ticket_title
+      # IMPORTANT: Clear votes and reveal state when changing tickets
+      state[:votes] = {}
+      state[:revealed] = false
       state[:timestamp] = Time.current.to_i
+      state[:ticket_id] = ticket_data ? ticket_data[:key] : nil
       save_state(state)
-      Rails.logger.info "[SessionStore] Ticket set: #{ticket_title}"
+      Rails.logger.info "[SessionStore] Ticket set: #{ticket_title}, cleared votes"
       state
     end
 
@@ -32,9 +37,15 @@ class EstimationSessionStore
 
     def reveal
       state = get_state
-      state[:revealed] = true
-      state[:timestamp] = Time.current.to_i
-      save_state(state)
+      # Only reveal if there are votes
+      if state[:votes].any?
+        state[:revealed] = true
+        state[:timestamp] = Time.current.to_i
+        save_state(state)
+        Rails.logger.info "[SessionStore] Votes revealed"
+      else
+        Rails.logger.info "[SessionStore] Cannot reveal - no votes"
+      end
       state
     end
 
@@ -44,12 +55,14 @@ class EstimationSessionStore
       state[:revealed] = false
       state[:timestamp] = Time.current.to_i
       save_state(state)
+      Rails.logger.info "[SessionStore] Votes cleared"
       state
     end
 
     def clear_all
       Rails.cache.delete(SESSION_KEY)
       Rails.cache.delete(PRESENCE_KEY)
+      Rails.logger.info "[SessionStore] All data cleared"
       default_state
     end
 
@@ -59,7 +72,9 @@ class EstimationSessionStore
       presence[connection_id] = Time.current.to_i
       save_presence(presence)
       cleanup_stale_connections
-      presence.keys.count
+      count = presence.keys.count
+      Rails.logger.info "[SessionStore] Connection added: #{connection_id}, Total: #{count}"
+      count
     end
 
     def remove_connection(connection_id)
@@ -67,7 +82,9 @@ class EstimationSessionStore
       presence.delete(connection_id)
       save_presence(presence)
       cleanup_stale_connections
-      presence.keys.count
+      count = presence.keys.count
+      Rails.logger.info "[SessionStore] Connection removed: #{connection_id}, Total: #{count}"
+      count
     end
 
     def heartbeat(connection_id)
@@ -83,12 +100,17 @@ class EstimationSessionStore
     def cleanup_stale_connections
       presence = get_presence
       current_time = Time.current.to_i
+      initial_count = presence.count
       
       presence.reject! do |_id, last_seen|
         current_time - last_seen > PRESENCE_EXPIRY.to_i
       end
       
-      save_presence(presence)
+      if presence.count != initial_count
+        save_presence(presence)
+        Rails.logger.info "[SessionStore] Cleaned #{initial_count - presence.count} stale connections"
+      end
+      
       presence
     end
 
@@ -100,18 +122,24 @@ class EstimationSessionStore
       get_state[:votes].count
     end
 
-    # Get complete session state
+    # Get complete session state - ensuring consistency
     def get_complete_state
       state = get_state
       presence_count = connected_count
       
+      # Ensure consistency
+      if state[:votes].empty?
+        state[:revealed] = false
+      end
+      
       {
         ticket_data: state[:ticket_data],
         ticket_title: state[:ticket_title],
-        votes: state[:votes],
-        revealed: state[:revealed],
+        ticket_id: state[:ticket_id],
+        votes: state[:votes] || {},
+        revealed: state[:revealed] || false,
         connected_count: presence_count,
-        voted_count: state[:votes].count,
+        voted_count: (state[:votes] || {}).count,
         timestamp: state[:timestamp]
       }
     end
@@ -122,6 +150,7 @@ class EstimationSessionStore
       {
         ticket_data: nil,
         ticket_title: nil,
+        ticket_id: nil,
         votes: {},
         revealed: false,
         timestamp: Time.current.to_i

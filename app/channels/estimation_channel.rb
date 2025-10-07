@@ -2,33 +2,30 @@ class EstimationChannel < ApplicationCable::Channel
   def subscribed
     stream_from "estimation_session"
     
-    # Track this connection and get count
-    connection_count = EstimationSessionStore.add_connection(connection.connection_identifier)
+    Rails.logger.info "[Channel] New subscription from #{connection.connection_identifier}"
+    
+    # Track this connection
+    EstimationSessionStore.add_connection(connection.connection_identifier)
     
     # Send current complete state to the newly connected client
-    state = EstimationSessionStore.get_complete_state
-    transmit({
-      action: "initial_state",
-      ticket_data: state[:ticket_data],
-      ticket_title: state[:ticket_title],
-      votes: state[:votes],
-      revealed: state[:revealed],
-      connected_count: state[:connected_count],
-      voted_count: state[:voted_count]
-    })
+    # Use perform_later to avoid race conditions
+    send_initial_state
     
-    # Broadcast presence update to ALL OTHER clients
+    # Broadcast presence update to ALL OTHER clients after a small delay
+    # This prevents race conditions with the initial state
     ActionCable.server.broadcast(
       "estimation_session",
       {
         action: "presence_updated",
-        connected_count: connection_count,
-        voted_count: state[:voted_count]
+        connected_count: EstimationSessionStore.connected_count,
+        voted_count: EstimationSessionStore.voted_count
       }
     )
   end
 
   def unsubscribed
+    Rails.logger.info "[Channel] Unsubscribed: #{connection.connection_identifier}"
+    
     # Remove this connection
     connection_count = EstimationSessionStore.remove_connection(connection.connection_identifier)
     voted_count = EstimationSessionStore.voted_count
@@ -62,5 +59,24 @@ class EstimationChannel < ApplicationCable::Channel
         }
       )
     end
+  end
+  
+  private
+  
+  def send_initial_state
+    state = EstimationSessionStore.get_complete_state
+    
+    Rails.logger.info "[Channel] Sending initial state to new client: votes=#{state[:votes].count}, revealed=#{state[:revealed]}"
+    
+    # Send the complete current state
+    transmit({
+      action: "initial_state",
+      ticket_data: state[:ticket_data],
+      ticket_title: state[:ticket_title],
+      votes: state[:votes],
+      revealed: state[:revealed],
+      connected_count: state[:connected_count],
+      voted_count: state[:voted_count]
+    })
   end
 end

@@ -96,6 +96,7 @@
       border-radius: 8px;
       padding: 20px;
       margin-top: 15px;
+      min-height: 100px;
     }
     .ticket-display.empty {
       text-align: center;
@@ -301,6 +302,7 @@
     }
     .participants {
       margin-top: 20px;
+      min-height: 100px;
     }
     .participants h2 {
       font-size: 18px;
@@ -365,6 +367,22 @@
       opacity: 0.6;
       pointer-events: none;
     }
+    .debug-info {
+      position: fixed;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.8);
+      color: #0f0;
+      padding: 10px;
+      font-family: monospace;
+      font-size: 12px;
+      border-radius: 4px;
+      max-width: 300px;
+      display: none;
+    }
+    .debug-info.show {
+      display: block;
+    }
   </style>
 </head>
 <body>
@@ -373,6 +391,8 @@
     <div class="connection-indicator" id="connectionIndicator"></div>
     <span id="connectionText">Connecting...</span>
   </div>
+  
+  <div class="debug-info" id="debugInfo"></div>
   
   <div class="container">
     <h1>DataBaes Estimations</h1>
@@ -422,18 +442,44 @@
   <script type="module">
     import { createConsumer } from "@rails/actioncable"
     
-    // Global state - single source of truth from server
+    // Global state - server is the single source of truth
     const state = {
       votes: {},
       revealed: false,
       ticketData: null,
+      ticketId: null,
       connectedCount: 0,
-      votedCount: 0
+      votedCount: 0,
+      initialized: false
     };
     
     let subscription = null;
     const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
     let isConnected = false;
+    let debugMode = false;
+    
+    // Enable debug mode with Alt+D
+    document.addEventListener('keydown', (e) => {
+      if (e.altKey && e.key === 'd') {
+        debugMode = !debugMode;
+        document.getElementById('debugInfo').classList.toggle('show', debugMode);
+        console.log('Debug mode:', debugMode);
+      }
+    });
+    
+    function updateDebug() {
+      if (debugMode) {
+        const debugEl = document.getElementById('debugInfo');
+        debugEl.innerHTML = `
+          Votes: ${Object.keys(state.votes).length}<br>
+          Revealed: ${state.revealed}<br>
+          Connected: ${state.connectedCount}<br>
+          Voted: ${state.votedCount}<br>
+          Ticket: ${state.ticketId || 'none'}<br>
+          Initialized: ${state.initialized}
+        `;
+      }
+    }
 
     function updateConnectionStatus(connected, text = null) {
       const indicator = document.getElementById("connectionIndicator");
@@ -453,6 +499,7 @@
     }
 
     function showStatus(message, isError = false) {
+      console.log(`[Status] ${message}`);
       const indicator = document.getElementById("statusIndicator");
       indicator.textContent = message;
       indicator.classList.add("show");
@@ -566,19 +613,21 @@
       const content = document.getElementById("technicalWriteupContent");
       const icon = document.getElementById("techCollapseIcon");
       
-      if (content.classList.contains("expanded")) {
-        content.classList.remove("expanded");
-        icon.classList.remove("expanded");
-      } else {
-        content.classList.add("expanded");
-        icon.classList.add("expanded");
+      if (content && icon) {
+        if (content.classList.contains("expanded")) {
+          content.classList.remove("expanded");
+          icon.classList.remove("expanded");
+        } else {
+          content.classList.add("expanded");
+          icon.classList.add("expanded");
+        }
       }
     };
 
     function renderVotes() {
       const list = document.getElementById("participantsList");
       
-      if (Object.keys(state.votes).length === 0) {
+      if (!state.votes || Object.keys(state.votes).length === 0) {
         list.innerHTML = '<div class="empty-state">No votes yet</div>';
         return;
       }
@@ -596,30 +645,42 @@
         .join('');
     }
 
-    function renderAll() {
+    function updateState(newState) {
+      console.log('[State Update]', newState);
+      
+      // Update all state properties
+      if ('votes' in newState) state.votes = newState.votes || {};
+      if ('revealed' in newState) state.revealed = newState.revealed || false;
+      if ('ticket_data' in newState) state.ticketData = newState.ticket_data;
+      if ('ticket_id' in newState) state.ticketId = newState.ticket_id;
+      if ('connected_count' in newState) state.connectedCount = newState.connected_count || 0;
+      if ('voted_count' in newState) state.votedCount = newState.voted_count || Object.keys(state.votes).length;
+      
+      // Render everything
       renderTicket();
       renderVotes();
       updatePresenceBadge();
+      updateDebug();
     }
 
-    // Load initial state from server
+    // Load initial state from server (fallback)
     async function loadSessionState() {
       try {
         const response = await fetch("/estimations/session_state");
         if (!response.ok) throw new Error("Failed to load session state");
         
         const data = await response.json();
-        console.log("Loaded session state:", data);
+        console.log("[Initial Load] Session state:", data);
         
-        // Update state from server
-        state.votes = data.votes || {};
-        state.revealed = data.revealed || false;
-        state.ticketData = data.ticket_data || null;
-        state.connectedCount = data.connected_count || 0;
-        state.votedCount = data.voted_count || 0;
+        updateState({
+          votes: data.votes,
+          revealed: data.revealed,
+          ticket_data: data.ticket_data,
+          ticket_id: data.ticket_id,
+          connected_count: data.connected_count,
+          voted_count: data.voted_count
+        });
         
-        // Render everything
-        renderAll();
       } catch (error) {
         console.error("Error loading session state:", error);
       }
@@ -637,7 +698,7 @@
         { channel: "EstimationChannel" },
         {
           connected() {
-            console.log("Connected to estimation channel");
+            console.log("[WebSocket] Connected to estimation channel");
             updateConnectionStatus(true);
             showStatus("Connected");
             
@@ -646,74 +707,82 @@
           },
           
           disconnected() {
-            console.log("Disconnected from estimation channel");
+            console.log("[WebSocket] Disconnected from estimation channel");
             updateConnectionStatus(false);
             this.stopHeartbeat();
+            state.initialized = false;
             
             // Try to reconnect
             setTimeout(() => {
-              console.log("Attempting to reconnect...");
+              console.log("[WebSocket] Attempting to reconnect...");
               updateConnectionStatus(false, "Reconnecting...");
               setupSubscription();
             }, 3000);
           },
           
           received(data) {
-            console.log("Received broadcast:", data);
+            console.log("[WebSocket] Received:", data);
             
             // Handle different action types
             switch(data.action) {
               case "initial_state":
-                // Complete state sent when joining
-                state.votes = data.votes || {};
-                state.revealed = data.revealed || false;
-                state.ticketData = data.ticket_data || null;
-                state.connectedCount = data.connected_count || 0;
-                state.votedCount = data.voted_count || 0;
-                renderAll();
+                // This is the complete state when first joining
+                console.log("[Initial State] Setting up from channel");
+                state.initialized = true;
+                updateState({
+                  votes: data.votes,
+                  revealed: data.revealed,
+                  ticket_data: data.ticket_data,
+                  ticket_id: data.ticket_id,
+                  connected_count: data.connected_count,
+                  voted_count: data.voted_count
+                });
                 showStatus("Session synchronized");
                 break;
                 
-              case "ticket_updated":
-                // Ticket was loaded/updated
-                state.ticketData = data.ticket_data;
-                renderTicket();
-                showStatus("Ticket loaded");
+              case "ticket_changed":
+                // New ticket loaded - votes are cleared
+                console.log("[Ticket Changed] Clearing votes for new ticket");
+                updateState({
+                  ticket_data: data.ticket_data,
+                  ticket_id: data.ticket_data ? data.ticket_data.key : null,
+                  votes: {},  // Clear votes
+                  revealed: false,  // Reset revealed
+                  voted_count: 0,
+                  connected_count: data.connected_count
+                });
+                showStatus("New ticket loaded - votes cleared");
                 break;
                 
-              case "votes_updated":
-                // Someone voted
-                state.votes = data.votes || {};
-                state.votedCount = data.voted_count || 0;
-                state.connectedCount = data.connected_count || 0;
-                renderVotes();
-                updatePresenceBadge();
-                break;
+              case "state_updated":
+                // Vote, reveal, or clear action
+                console.log("[State Updated] Updating votes/reveal state");
+                updateState({
+                  votes: data.votes,
+                  revealed: data.revealed,
+                  voted_count: data.voted_count,
+                  connected_count: data.connected_count
+                });
                 
-              case "reveal_updated":
-                // Votes were revealed
-                state.revealed = data.revealed;
-                state.votes = data.votes || {};
-                renderVotes();
-                showStatus("Votes revealed!");
-                break;
-                
-              case "votes_cleared":
-                // Votes were cleared
-                state.votes = {};
-                state.revealed = false;
-                state.votedCount = 0;
-                state.connectedCount = data.connected_count || 0;
-                renderAll();
-                showStatus("Votes cleared");
+                // Show appropriate message
+                if (data.revealed && Object.keys(data.votes).length > 0) {
+                  showStatus("Votes revealed!");
+                } else if (Object.keys(data.votes).length === 0) {
+                  showStatus("Votes cleared");
+                }
                 break;
                 
               case "presence_updated":
                 // Someone joined/left
+                console.log("[Presence Updated]", data);
                 state.connectedCount = data.connected_count || 0;
                 state.votedCount = data.voted_count || 0;
                 updatePresenceBadge();
+                updateDebug();
                 break;
+                
+              default:
+                console.warn("[WebSocket] Unknown action:", data.action);
             }
           },
           
@@ -785,6 +854,11 @@
         return;
       }
 
+      if (!state.ticketData) {
+        alert("Please load a ticket before voting");
+        return;
+      }
+
       try {
         const response = await fetch("/estimations/submit", {
           method: "POST",
@@ -801,6 +875,7 @@
 
         // Clear selection
         document.getElementById("storyPoints").value = "";
+        showStatus("Vote submitted");
         // State update will come via broadcast
       } catch (error) {
         console.error("Error submitting vote:", error);
@@ -809,6 +884,11 @@
     });
 
     document.getElementById("revealBtn").addEventListener("click", async () => {
+      if (!state.votes || Object.keys(state.votes).length === 0) {
+        alert("No votes to reveal");
+        return;
+      }
+
       try {
         const response = await fetch("/estimations/reveal", {
           method: "POST",
@@ -829,6 +909,11 @@
     });
 
     document.getElementById("clearBtn").addEventListener("click", async () => {
+      if (!state.votes || Object.keys(state.votes).length === 0) {
+        alert("No votes to clear");
+        return;
+      }
+
       if (!confirm("Are you sure you want to clear all votes?")) {
         return;
       }
@@ -854,10 +939,12 @@
 
     // Initialize
     async function init() {
-      // Load initial state
+      console.log("[Init] Starting application");
+      
+      // Load initial state first (as fallback)
       await loadSessionState();
       
-      // Setup WebSocket subscription
+      // Setup WebSocket subscription (will override with initial_state)
       setupSubscription();
     }
 

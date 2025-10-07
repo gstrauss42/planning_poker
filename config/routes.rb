@@ -6,14 +6,13 @@ Rails.application.routes.draw do
   get "up" => "rails/health#show", as: :rails_health_check
 
   root "estimations#index"
+  
+  # Estimation routes
   post "estimations/submit", to: "estimations#submit"
   post "estimations/reveal", to: "estimations#reveal"
   post "estimations/clear", to: "estimations#clear"
-  post "estimations/set_ticket", to: "estimations#set_ticket"
   post "estimations/fetch_jira_ticket", to: "estimations#fetch_jira_ticket"
   get "estimations/session_state", to: "estimations#get_session_state"
-  post "estimations/cleanup_presence", to: "estimations#cleanup_presence"
-    
     
   # Render dynamic PWA files from app/views/pwa/* (remember to link manifest in application.html.erb)
   # get "manifest" => "rails/pwa#manifest", as: :pwa_manifest
