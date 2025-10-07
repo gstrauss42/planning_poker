@@ -5,16 +5,28 @@ class EstimationChannel < ApplicationCable::Channel
     # Track this connection
     EstimationSessionStore.add_connection(connection_identifier)
     
-    # Send current connected count directly to this client
-    transmit({
-      action: "presence_update",
-      connected_count: EstimationSessionStore.connected_count
-    })
+    # Broadcast to ALL clients (just like submit, reveal, clear do)
+    ActionCable.server.broadcast(
+      "estimation_session",
+      {
+        action: "presence_update",
+        connected_count: EstimationSessionStore.connected_count
+      }
+    )
   end
 
   def unsubscribed
     # Remove this connection
     EstimationSessionStore.remove_connection(connection_identifier)
+    
+    # Broadcast to ALL clients (just like submit, reveal, clear do)
+    ActionCable.server.broadcast(
+      "estimation_session",
+      {
+        action: "presence_update",
+        connected_count: EstimationSessionStore.connected_count
+      }
+    )
   end
 
   def heartbeat

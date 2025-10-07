@@ -527,10 +527,8 @@
           console.log("Connected to estimation channel");
           showStatus("Connected");
           
-          // Small delay to ensure connection is fully established and counted
-          setTimeout(() => {
-            fetchInitialState();
-          }, 100);
+          // Fetch initial state after connection is established
+          fetchInitialState();
           
           // Start sending heartbeats every 10 seconds
           this.startHeartbeat();

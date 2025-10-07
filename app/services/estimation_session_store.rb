@@ -48,7 +48,7 @@ class EstimationSessionStore
       presence[connection_id] = Time.current.to_i
       save_presence(presence)
       Rails.logger.info("Connection added: #{connection_id}. Total: #{presence.count}")
-      broadcast_presence_count
+      # Don't broadcast here - let the channel handle it like other events
     end
 
     def remove_connection(connection_id)
@@ -56,7 +56,7 @@ class EstimationSessionStore
       presence.delete(connection_id)
       save_presence(presence)
       Rails.logger.info("Connection removed: #{connection_id}. Total: #{presence.count}")
-      broadcast_presence_count
+      # Don't broadcast here - let the channel handle it like other events
     end
 
     def heartbeat(connection_id)
@@ -95,8 +95,6 @@ class EstimationSessionStore
     end
 
     private
-
-    def default_state
       {
         ticket_data: nil,
         ticket_title: nil,
@@ -113,16 +111,6 @@ class EstimationSessionStore
     def save_presence(presence)
       Rails.cache.write(PRESENCE_KEY, presence, expires_in: EXPIRY)
       presence
-    end
-
-    def broadcast_presence_count
-      ActionCable.server.broadcast(
-        "estimation_session",
-        {
-          action: "presence_update",
-          connected_count: connected_count
-        }
-      )
     end
   end
 end
