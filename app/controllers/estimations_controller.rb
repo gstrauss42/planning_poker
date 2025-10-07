@@ -9,7 +9,7 @@ class EstimationsController < ApplicationController
     # Store in session
     EstimationSessionStore.add_vote(user_name, points)
 
-    # Broadcast to all clients
+    # Broadcast to all clients (including sender for consistency)
     ActionCable.server.broadcast(
       "estimation_session",
       {
@@ -29,7 +29,7 @@ class EstimationsController < ApplicationController
       }
     )
 
-    head :ok
+    render json: { success: true }
   end
 
   def reveal
@@ -42,7 +42,7 @@ class EstimationsController < ApplicationController
       { action: "reveal" }
     )
 
-    head :ok
+    render json: { success: true }
   end
 
   def clear
@@ -65,7 +65,7 @@ class EstimationsController < ApplicationController
       }
     )
 
-    head :ok
+    render json: { success: true }
   end
 
   def set_ticket
@@ -83,7 +83,7 @@ class EstimationsController < ApplicationController
       }
     )
 
-    head :ok
+    render json: { success: true }
   end
 
   def fetch_jira_ticket
@@ -124,8 +124,10 @@ class EstimationsController < ApplicationController
     end
   end
 
+  # This endpoint returns the complete session state
+  # Called when page loads to sync initial state
   def get_session_state
-    state = EstimationSessionStore.get_state
+    state = EstimationSessionStore.get_complete_state
     render json: state
   end
 end

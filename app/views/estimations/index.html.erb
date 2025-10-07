@@ -28,6 +28,44 @@
       margin: 0 0 30px 0;
       color: #333;
     }
+    .connection-status {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #f5f5f5;
+      border-radius: 20px;
+      font-size: 13px;
+      color: #666;
+    }
+    .connection-indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ffc107;
+      animation: pulse 2s infinite;
+    }
+    .connection-indicator.connected {
+      background: #4CAF50;
+      animation: none;
+    }
+    .connection-indicator.disconnected {
+      background: #f44336;
+      animation: blink 1s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+    }
+    @keyframes blink {
+      0% { opacity: 1; }
+      50% { opacity: 0.3; }
+      100% { opacity: 1; }
+    }
     .presence-badge {
       font-size: 16px;
       font-weight: 500;
@@ -116,7 +154,6 @@
       line-height: 1.6;
       font-size: 15px;
     }
-    /* Styling for HTML content from JIRA */
     .section-content h1, .section-content h2, .section-content h3,
     .section-content h4, .section-content h5, .section-content h6 {
       margin-top: 16px;
@@ -124,12 +161,6 @@
       font-weight: 600;
       color: #333;
     }
-    .section-content h1 { font-size: 24px; }
-    .section-content h2 { font-size: 20px; }
-    .section-content h3 { font-size: 18px; }
-    .section-content h4 { font-size: 16px; }
-    .section-content h5 { font-size: 14px; }
-    .section-content h6 { font-size: 13px; }
     .section-content p {
       margin-bottom: 12px;
     }
@@ -139,12 +170,6 @@
     }
     .section-content li {
       margin-bottom: 6px;
-    }
-    .section-content ul {
-      list-style-type: disc;
-    }
-    .section-content ol {
-      list-style-type: decimal;
     }
     .section-content code {
       background: #f5f5f5;
@@ -159,28 +184,6 @@
       border-radius: 4px;
       overflow-x: auto;
       margin: 12px 0;
-    }
-    .section-content pre code {
-      background: none;
-      padding: 0;
-    }
-    .section-content blockquote {
-      border-left: 4px solid #ddd;
-      padding-left: 16px;
-      margin: 12px 0;
-      color: #666;
-      font-style: italic;
-    }
-    .section-content strong {
-      font-weight: 600;
-    }
-    .section-content em {
-      font-style: italic;
-    }
-    .section-content hr {
-      border: none;
-      border-top: 1px solid #ddd;
-      margin: 16px 0;
     }
     .collapsible-section {
       border: 1px solid #ddd;
@@ -362,10 +365,60 @@
       opacity: 0.6;
       pointer-events: none;
     }
+    .sync-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+    .sync-overlay.show {
+      opacity: 1;
+      pointer-events: all;
+    }
+    .sync-message {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      text-align: center;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+    .sync-spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #4CAF50;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body>
   <div class="status-indicator" id="statusIndicator">Connected</div>
+  <div class="connection-status">
+    <div class="connection-indicator" id="connectionIndicator"></div>
+    <span id="connectionText">Connecting...</span>
+  </div>
+  
+  <div class="sync-overlay" id="syncOverlay">
+    <div class="sync-message">
+      <div class="sync-spinner"></div>
+      <p>Synchronizing session state...</p>
+    </div>
+  </div>
   
   <div class="container">
     <h1>DataBaes Estimations</h1>
@@ -415,13 +468,66 @@
   <script type="module">
     import { createConsumer } from "@rails/actioncable"
     
-    const votes = {};
-    let revealed = false;
-    let currentTicketData = null;
-    let connectedCount = 0;
-    let votedCount = 0;
+    // State management
+    const state = {
+      votes: {},
+      revealed: false,
+      currentTicketData: null,
+      connectedCount: 0,
+      votedCount: 0,
+      isConnected: false,
+      isSyncing: false,
+      lastUpdateTimestamp: 0
+    };
+    
     let subscription = null;
     const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+    let reconnectTimer = null;
+    let heartbeatInterval = null;
+
+    // Deduplication tracking
+    const processedActions = new Set();
+    const ACTION_EXPIRY = 5000; // 5 seconds
+
+    function generateActionId(action, data) {
+      return `${action}-${data.user_name || ''}-${data.points || ''}-${state.lastUpdateTimestamp}`;
+    }
+
+    function shouldProcessAction(actionId) {
+      if (processedActions.has(actionId)) {
+        return false;
+      }
+      processedActions.add(actionId);
+      // Clean up old action IDs after expiry
+      setTimeout(() => processedActions.delete(actionId), ACTION_EXPIRY);
+      return true;
+    }
+
+    function updateConnectionStatus(connected, text = null) {
+      const indicator = document.getElementById("connectionIndicator");
+      const textEl = document.getElementById("connectionText");
+      
+      state.isConnected = connected;
+      
+      if (connected) {
+        indicator.classList.add("connected");
+        indicator.classList.remove("disconnected");
+        textEl.textContent = text || "Connected";
+      } else {
+        indicator.classList.remove("connected");
+        indicator.classList.add("disconnected");
+        textEl.textContent = text || "Disconnected";
+      }
+    }
+
+    function showSyncOverlay(show) {
+      const overlay = document.getElementById("syncOverlay");
+      if (show) {
+        overlay.classList.add("show");
+      } else {
+        overlay.classList.remove("show");
+      }
+    }
 
     function showStatus(message, isError = false) {
       const indicator = document.getElementById("statusIndicator");
@@ -440,92 +546,14 @@
 
     function updatePresenceBadge() {
       const badge = document.getElementById("presenceBadge");
-      badge.textContent = `${votedCount}/${connectedCount} voted`;
+      badge.textContent = `${state.votedCount}/${state.connectedCount} voted`;
       
-      // Turn green when everyone has voted
-      if (connectedCount > 0 && votedCount === connectedCount) {
+      if (state.connectedCount > 0 && state.votedCount === state.connectedCount) {
         badge.classList.add("all-voted");
       } else {
         badge.classList.remove("all-voted");
       }
     }
-
-    // Helper function to update ticket data and render
-    function updateTicketData(ticketData, ticketTitle) {
-      currentTicketData = ticketData || null;
-      renderTicket();
-    }
-
-    // Helper function to update vote data and render
-    function updateVote(userName, points) {
-      votes[userName] = points;
-      renderVotes();
-    }
-
-    // Helper function to reveal votes
-    function revealVotes() {
-      revealed = true;
-      renderVotes();
-    }
-
-    // Helper function to clear votes
-    function clearVotes() {
-      Object.keys(votes).forEach(key => delete votes[key]);
-      revealed = false;
-      renderVotes();
-    }
-
-    // Create Action Cable consumer
-    const cable = createConsumer();
-      
-    subscription = cable.subscriptions.create(
-      { channel: "EstimationChannel" },
-      {
-        connected() {
-          console.log("Connected to estimation channel");
-          showStatus("Connected");
-          
-          // Start sending heartbeats every 10 seconds
-          this.startHeartbeat();
-        },
-        disconnected() {
-          console.log("Disconnected from estimation channel");
-          this.stopHeartbeat();
-        },
-        received(data) {
-          console.log("Received data:", data);
-          
-          if (data.action === "submit") {
-            updateVote(data.user_name, data.points);
-            showStatus(`${data.user_name} voted`);
-          } else if (data.action === "reveal") {
-            revealVotes();
-            showStatus("All estimates revealed!");
-          } else if (data.action === "clear") {
-            clearVotes();
-            showStatus("Votes cleared!");
-          } else if (data.action === "set_ticket") {
-            updateTicketData(data.ticket_data, data.ticket_title);
-            showStatus("Ticket updated");
-          } else if (data.action === "presence_update") {
-            connectedCount = data.connected_count;
-            votedCount = data.voted_count;
-            updatePresenceBadge();
-          }
-        },
-        startHeartbeat() {
-          this.heartbeatInterval = setInterval(() => {
-            this.perform('heartbeat');
-          }, 10000); // Send heartbeat every 10 seconds
-        },
-        stopHeartbeat() {
-          if (this.heartbeatInterval) {
-            clearInterval(this.heartbeatInterval);
-            this.heartbeatInterval = null;
-          }
-        }
-      }
-    );
 
     function escapeHtml(text) {
       const div = document.createElement('div');
@@ -533,10 +561,40 @@
       return div.innerHTML;
     }
 
+    // Load initial state from server
+    async function loadInitialState() {
+      showSyncOverlay(true);
+      try {
+        const response = await fetch("/estimations/session_state");
+        if (!response.ok) throw new Error("Failed to load session state");
+        
+        const data = await response.json();
+        
+        // Apply the complete state
+        state.votes = data.votes || {};
+        state.revealed = data.revealed || false;
+        state.currentTicketData = data.ticket_data || null;
+        state.connectedCount = data.connected_count || 0;
+        state.votedCount = data.voted_count || 0;
+        state.lastUpdateTimestamp = data.updated_at || Date.now();
+        
+        // Render everything
+        renderTicket();
+        renderVotes();
+        updatePresenceBadge();
+        
+      } catch (error) {
+        console.error("Error loading initial state:", error);
+        showStatus("Failed to load session state", true);
+      } finally {
+        showSyncOverlay(false);
+      }
+    }
+
     function renderTicket() {
       const display = document.getElementById("ticketDisplay");
       
-      if (!currentTicketData) {
+      if (!state.currentTicketData) {
         display.innerHTML = '<span>No ticket loaded - Enter a JIRA ticket to begin</span>';
         display.classList.add("empty");
         return;
@@ -547,24 +605,24 @@
       let html = `
         <div class="ticket-header">
           <div>
-            <div class="ticket-title">${escapeHtml(currentTicketData.formatted_title || currentTicketData.key)}</div>
+            <div class="ticket-title">${escapeHtml(state.currentTicketData.formatted_title || state.currentTicketData.key)}</div>
             <div class="ticket-meta">
-              ${currentTicketData.status ? `
+              ${state.currentTicketData.status ? `
                 <div class="ticket-meta-item">
                   <span class="ticket-meta-label">Status:</span>
-                  <span>${escapeHtml(currentTicketData.status)}</span>
+                  <span>${escapeHtml(state.currentTicketData.status)}</span>
                 </div>
               ` : ''}
-              ${currentTicketData.priority ? `
+              ${state.currentTicketData.priority ? `
                 <div class="ticket-meta-item">
                   <span class="ticket-meta-label">Priority:</span>
-                  <span>${escapeHtml(currentTicketData.priority)}</span>
+                  <span>${escapeHtml(state.currentTicketData.priority)}</span>
                 </div>
               ` : ''}
-              ${currentTicketData.assignee ? `
+              ${state.currentTicketData.assignee ? `
                 <div class="ticket-meta-item">
                   <span class="ticket-meta-label">Assignee:</span>
-                  <span>${escapeHtml(currentTicketData.assignee)}</span>
+                  <span>${escapeHtml(state.currentTicketData.assignee)}</span>
                 </div>
               ` : ''}
             </div>
@@ -573,28 +631,25 @@
         <div class="ticket-content">
       `;
 
-      // Description Section - only show if not empty
-      if (currentTicketData.description && typeof currentTicketData.description === 'string' && currentTicketData.description.trim()) {
+      if (state.currentTicketData.description && typeof state.currentTicketData.description === 'string' && state.currentTicketData.description.trim()) {
         html += `
           <div class="ticket-section-block">
             <div class="section-header">Description</div>
-            <div class="section-content">${currentTicketData.description}</div>
+            <div class="section-content">${state.currentTicketData.description}</div>
           </div>
         `;
       }
 
-      // Acceptance Criteria Section - only show if not empty
-      if (currentTicketData.acceptance_criteria && typeof currentTicketData.acceptance_criteria === 'string' && currentTicketData.acceptance_criteria.trim()) {
+      if (state.currentTicketData.acceptance_criteria && typeof state.currentTicketData.acceptance_criteria === 'string' && state.currentTicketData.acceptance_criteria.trim()) {
         html += `
           <div class="ticket-section-block">
             <div class="section-header">Acceptance Criteria</div>
-            <div class="section-content">${currentTicketData.acceptance_criteria}</div>
+            <div class="section-content">${state.currentTicketData.acceptance_criteria}</div>
           </div>
         `;
       }
 
-      // Technical Writeup - Collapsible - only show if not empty
-      if (currentTicketData.technical_writeup && typeof currentTicketData.technical_writeup === 'string' && currentTicketData.technical_writeup.trim()) {
+      if (state.currentTicketData.technical_writeup && typeof state.currentTicketData.technical_writeup === 'string' && state.currentTicketData.technical_writeup.trim()) {
         html += `
           <div class="ticket-section-block">
             <div class="collapsible-section">
@@ -603,7 +658,7 @@
                 <span class="collapse-icon" id="techCollapseIcon">▼</span>
               </div>
               <div class="collapsible-content" id="technicalWriteupContent">
-                <div class="section-content">${currentTicketData.technical_writeup}</div>
+                <div class="section-content">${state.currentTicketData.technical_writeup}</div>
               </div>
             </div>
           </div>
@@ -614,7 +669,6 @@
       display.innerHTML = html;
     }
 
-    // Make toggleTechnicalWriteup global so onclick can access it
     window.toggleTechnicalWriteup = function() {
       const content = document.getElementById("technicalWriteupContent");
       const icon = document.getElementById("techCollapseIcon");
@@ -631,16 +685,16 @@
     function renderVotes() {
       const list = document.getElementById("participantsList");
       
-      if (Object.keys(votes).length === 0) {
+      if (Object.keys(state.votes).length === 0) {
         list.innerHTML = '<div class="empty-state">No votes yet</div>';
         return;
       }
 
-      list.innerHTML = Object.entries(votes)
+      list.innerHTML = Object.entries(state.votes)
         .map(([name, points]) => `
           <div class="participant">
             <span class="participant-name">${escapeHtml(name)}</span>
-            ${revealed ? 
+            ${state.revealed ? 
               `<span class="points">${escapeHtml(points)}</span>` : 
               `<span class="participant-status">✓ Voted</span>`
             }
@@ -649,7 +703,119 @@
         .join('');
     }
 
-    // Fetch from JIRA
+    // Create Action Cable consumer with reconnection logic
+    const cable = createConsumer();
+    
+    function setupSubscription() {
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+      
+      subscription = cable.subscriptions.create(
+        { channel: "EstimationChannel" },
+        {
+          connected() {
+            console.log("Connected to estimation channel");
+            updateConnectionStatus(true);
+            showStatus("Connected");
+            
+            // Clear any reconnection timer
+            if (reconnectTimer) {
+              clearTimeout(reconnectTimer);
+              reconnectTimer = null;
+            }
+            
+            // Start heartbeat
+            this.startHeartbeat();
+            
+            // Load current state after reconnection
+            if (state.lastUpdateTimestamp > 0) {
+              loadInitialState();
+            }
+          },
+          
+          disconnected() {
+            console.log("Disconnected from estimation channel");
+            updateConnectionStatus(false);
+            this.stopHeartbeat();
+            
+            // Attempt to reconnect after 3 seconds
+            if (!reconnectTimer) {
+              reconnectTimer = setTimeout(() => {
+                console.log("Attempting to reconnect...");
+                updateConnectionStatus(false, "Reconnecting...");
+                this.perform('heartbeat');
+              }, 3000);
+            }
+          },
+          
+          received(data) {
+            console.log("Received data:", data);
+            
+            // Generate action ID for deduplication
+            const actionId = generateActionId(data.action, data);
+            
+            if (!shouldProcessAction(actionId)) {
+              console.log("Skipping duplicate action:", actionId);
+              return;
+            }
+            
+            // Update state based on action
+            switch(data.action) {
+              case "submit":
+                state.votes[data.user_name] = data.points;
+                renderVotes();
+                showStatus(`${data.user_name} voted`);
+                break;
+                
+              case "reveal":
+                state.revealed = true;
+                renderVotes();
+                showStatus("All estimates revealed!");
+                break;
+                
+              case "clear":
+                state.votes = {};
+                state.revealed = false;
+                renderVotes();
+                showStatus("Votes cleared!");
+                break;
+                
+              case "set_ticket":
+                state.currentTicketData = data.ticket_data;
+                renderTicket();
+                showStatus("Ticket updated");
+                break;
+                
+              case "presence_update":
+                state.connectedCount = data.connected_count;
+                state.votedCount = data.voted_count;
+                updatePresenceBadge();
+                break;
+            }
+            
+            // Update timestamp
+            state.lastUpdateTimestamp = Date.now();
+          },
+          
+          startHeartbeat() {
+            this.stopHeartbeat();
+            heartbeatInterval = setInterval(() => {
+              this.perform('heartbeat');
+            }, 10000);
+          },
+          
+          stopHeartbeat() {
+            if (heartbeatInterval) {
+              clearInterval(heartbeatInterval);
+              heartbeatInterval = null;
+            }
+          }
+        }
+      );
+    }
+
+    // Event handlers
     document.getElementById("fetchJiraBtn").addEventListener("click", async () => {
       const jiraInput = document.getElementById("jiraTicket").value.trim();
       const btn = document.getElementById("fetchJiraBtn");
@@ -670,9 +836,7 @@
             "Content-Type": "application/json",
             "X-CSRF-Token": csrfToken
           },
-          body: JSON.stringify({
-            jira_input: jiraInput
-          })
+          body: JSON.stringify({ jira_input: jiraInput })
         });
 
         const result = await response.json();
@@ -681,11 +845,7 @@
           throw new Error(result.error || `HTTP error! status: ${response.status}`);
         }
 
-        console.log("JIRA ticket fetched successfully:", result);
-        
-        // Immediately update local state (don't wait for ActionCable broadcast)
-        updateTicketData(result.ticket, result.ticket.formatted_title);
-        
+        // Don't update local state - wait for broadcast
         showStatus("JIRA ticket loaded!");
         document.getElementById("jiraTicket").value = "";
       } catch (error) {
@@ -698,7 +858,6 @@
       }
     });
 
-    // Submit vote
     document.getElementById("submitBtn").addEventListener("click", async () => {
       const userName = document.getElementById("userName").value.trim();
       const points = document.getElementById("storyPoints").value;
@@ -715,29 +874,22 @@
             "Content-Type": "application/json",
             "X-CSRF-Token": csrfToken
           },
-          body: JSON.stringify({
-            user_name: userName,
-            points: points
-          })
+          body: JSON.stringify({ user_name: userName, points: points })
         });
 
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        console.log("Vote submitted successfully");
-        
-        // Immediately update local state (don't wait for ActionCable broadcast)
-        updateVote(userName, points);
-        
+        // Don't update local state - wait for broadcast
         document.getElementById("storyPoints").value = "";
+        showStatus("Vote submitted!");
       } catch (error) {
         console.error("Error submitting vote:", error);
-        alert("Failed to submit vote. Check console for details.");
+        showStatus("Failed to submit vote", true);
       }
     });
 
-    // Reveal votes
     document.getElementById("revealBtn").addEventListener("click", async () => {
       try {
         const response = await fetch("/estimations/reveal", {
@@ -751,19 +903,17 @@
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
-
-        console.log("Votes revealed successfully");
-        
-        // Immediately update local state (don't wait for ActionCable broadcast)
-        revealVotes();
       } catch (error) {
         console.error("Error revealing votes:", error);
-        alert("Failed to reveal votes. Check console for details.");
+        showStatus("Failed to reveal votes", true);
       }
     });
 
-    // Clear votes
     document.getElementById("clearBtn").addEventListener("click", async () => {
+      if (!confirm("Are you sure you want to clear all votes?")) {
+        return;
+      }
+
       try {
         const response = await fetch("/estimations/clear", {
           method: "POST",
@@ -776,20 +926,23 @@
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
-
-        console.log("Votes cleared successfully");
-        
-        // Immediately update local state (don't wait for ActionCable broadcast)
-        clearVotes();
       } catch (error) {
         console.error("Error clearing votes:", error);
-        alert("Failed to clear votes. Check console for details.");
+        showStatus("Failed to clear votes", true);
       }
     });
 
-    // Initial render
-    renderVotes();
-    renderTicket();
+    // Initialize
+    async function init() {
+      // Load initial state first
+      await loadInitialState();
+      
+      // Then setup WebSocket subscription
+      setupSubscription();
+    }
+
+    // Start the application
+    init();
   </script>
 </body>
 </html>
