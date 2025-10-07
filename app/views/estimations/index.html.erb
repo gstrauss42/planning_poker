@@ -139,9 +139,6 @@
     .ticket-section-block {
       margin-bottom: 25px;
     }
-    .ticket-section-block:last-child {
-      margin-bottom: 0;
-    }
     .section-header {
       font-size: 16px;
       font-weight: 600;
@@ -155,8 +152,7 @@
       line-height: 1.6;
       font-size: 15px;
     }
-    .section-content h1, .section-content h2, .section-content h3,
-    .section-content h4, .section-content h5, .section-content h6 {
+    .section-content h1, .section-content h2, .section-content h3 {
       margin-top: 16px;
       margin-bottom: 8px;
       font-weight: 600;
@@ -169,22 +165,12 @@
       margin: 12px 0;
       padding-left: 28px;
     }
-    .section-content li {
-      margin-bottom: 6px;
-    }
     .section-content code {
       background: #f5f5f5;
       padding: 2px 6px;
       border-radius: 3px;
-      font-family: 'Courier New', monospace;
+      font-family: monospace;
       font-size: 14px;
-    }
-    .section-content pre {
-      background: #f5f5f5;
-      padding: 12px;
-      border-radius: 4px;
-      overflow-x: auto;
-      margin: 12px 0;
     }
     .collapsible-section {
       border: 1px solid #ddd;
@@ -199,16 +185,6 @@
       background: #f9f9f9;
       cursor: pointer;
       user-select: none;
-      transition: background 0.2s;
-    }
-    .collapsible-header:hover {
-      background: #f0f0f0;
-    }
-    .collapsible-header .section-header {
-      margin: 0;
-      padding: 0;
-      border: none;
-      font-size: 15px;
     }
     .collapse-icon {
       font-size: 18px;
@@ -227,7 +203,6 @@
     }
     .collapsible-content.expanded {
       max-height: 2000px;
-      transition: max-height 0.5s ease-in;
     }
     .input-section {
       display: flex;
@@ -246,10 +221,6 @@
       flex: 1;
       min-width: 150px;
     }
-    input:focus, select:focus {
-      outline: none;
-      border-color: #4CAF50;
-    }
     select {
       min-width: 120px;
       background: white;
@@ -263,11 +234,8 @@
       font-weight: 500;
       transition: background 0.2s;
     }
-    button:hover {
+    button:hover:not(:disabled) {
       background: #45a049;
-    }
-    button:active {
-      transform: scale(0.98);
     }
     button:disabled {
       background: #ccc;
@@ -284,20 +252,20 @@
     button.reveal {
       background: #2196F3;
     }
-    button.reveal:hover {
+    button.reveal:hover:not(:disabled) {
       background: #0b7dda;
     }
     button.clear {
       background: #f44336;
     }
-    button.clear:hover {
+    button.clear:hover:not(:disabled) {
       background: #da190b;
     }
     button.fetch-jira {
       background: #0052CC;
       min-width: 140px;
     }
-    button.fetch-jira:hover {
+    button.fetch-jira:hover:not(:disabled) {
       background: #0747A6;
     }
     .participants {
@@ -363,25 +331,16 @@
     .status-indicator.error {
       background: #f44336;
     }
-    .loading {
-      opacity: 0.6;
-      pointer-events: none;
-    }
-    .debug-info {
+    .version-indicator {
       position: fixed;
       bottom: 10px;
-      left: 10px;
-      background: rgba(0,0,0,0.8);
-      color: #0f0;
-      padding: 10px;
+      right: 10px;
+      padding: 5px 10px;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      font-size: 11px;
       font-family: monospace;
-      font-size: 12px;
-      border-radius: 4px;
-      max-width: 300px;
-      display: none;
-    }
-    .debug-info.show {
-      display: block;
+      border-radius: 3px;
     }
   </style>
 </head>
@@ -392,7 +351,7 @@
     <span id="connectionText">Connecting...</span>
   </div>
   
-  <div class="debug-info" id="debugInfo"></div>
+  <div class="version-indicator" id="versionIndicator">v0</div>
   
   <div class="container">
     <h1>DataBaes Estimations</h1>
@@ -442,7 +401,7 @@
   <script type="module">
     import { createConsumer } from "@rails/actioncable"
     
-    // Global state - server is the single source of truth
+    // Single global state object
     const state = {
       votes: {},
       revealed: false,
@@ -450,42 +409,15 @@
       ticketId: null,
       connectedCount: 0,
       votedCount: 0,
-      initialized: false
+      version: 0
     };
     
     let subscription = null;
     const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
-    let isConnected = false;
-    let debugMode = false;
     
-    // Enable debug mode with Alt+D
-    document.addEventListener('keydown', (e) => {
-      if (e.altKey && e.key === 'd') {
-        debugMode = !debugMode;
-        document.getElementById('debugInfo').classList.toggle('show', debugMode);
-        console.log('Debug mode:', debugMode);
-      }
-    });
-    
-    function updateDebug() {
-      if (debugMode) {
-        const debugEl = document.getElementById('debugInfo');
-        debugEl.innerHTML = `
-          Votes: ${Object.keys(state.votes).length}<br>
-          Revealed: ${state.revealed}<br>
-          Connected: ${state.connectedCount}<br>
-          Voted: ${state.votedCount}<br>
-          Ticket: ${state.ticketId || 'none'}<br>
-          Initialized: ${state.initialized}
-        `;
-      }
-    }
-
     function updateConnectionStatus(connected, text = null) {
       const indicator = document.getElementById("connectionIndicator");
       const textEl = document.getElementById("connectionText");
-      
-      isConnected = connected;
       
       if (connected) {
         indicator.classList.add("connected");
@@ -514,6 +446,32 @@
       }, 3000);
     }
 
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+    
+    // Single function to sync state from server
+    function syncState(serverState) {
+      console.log(`[Sync] Updating to version ${serverState.version} from ${state.version}`);
+      
+      // Update all state properties
+      state.votes = serverState.votes || {};
+      state.revealed = serverState.revealed || false;
+      state.ticketData = serverState.ticket_data || null;
+      state.ticketId = serverState.ticket_id || null;
+      state.connectedCount = serverState.connected_count || 0;
+      state.votedCount = serverState.voted_count || 0;
+      state.version = serverState.version || 0;
+      
+      // Update UI
+      renderAll();
+      
+      // Update version indicator
+      document.getElementById("versionIndicator").textContent = `v${state.version}`;
+    }
+
     function updatePresenceBadge() {
       const badge = document.getElementById("presenceBadge");
       badge.textContent = `${state.votedCount}/${state.connectedCount} voted`;
@@ -523,12 +481,6 @@
       } else {
         badge.classList.remove("all-voted");
       }
-    }
-
-    function escapeHtml(text) {
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
     }
 
     function renderTicket() {
@@ -571,7 +523,7 @@
         <div class="ticket-content">
       `;
 
-      if (state.ticketData.description && typeof state.ticketData.description === 'string' && state.ticketData.description.trim()) {
+      if (state.ticketData.description && state.ticketData.description.trim()) {
         html += `
           <div class="ticket-section-block">
             <div class="section-header">Description</div>
@@ -580,7 +532,7 @@
         `;
       }
 
-      if (state.ticketData.acceptance_criteria && typeof state.ticketData.acceptance_criteria === 'string' && state.ticketData.acceptance_criteria.trim()) {
+      if (state.ticketData.acceptance_criteria && state.ticketData.acceptance_criteria.trim()) {
         html += `
           <div class="ticket-section-block">
             <div class="section-header">Acceptance Criteria</div>
@@ -589,7 +541,7 @@
         `;
       }
 
-      if (state.ticketData.technical_writeup && typeof state.ticketData.technical_writeup === 'string' && state.ticketData.technical_writeup.trim()) {
+      if (state.ticketData.technical_writeup && state.ticketData.technical_writeup.trim()) {
         html += `
           <div class="ticket-section-block">
             <div class="collapsible-section">
@@ -645,48 +597,13 @@
         .join('');
     }
 
-    function updateState(newState) {
-      console.log('[State Update]', newState);
-      
-      // Update all state properties
-      if ('votes' in newState) state.votes = newState.votes || {};
-      if ('revealed' in newState) state.revealed = newState.revealed || false;
-      if ('ticket_data' in newState) state.ticketData = newState.ticket_data;
-      if ('ticket_id' in newState) state.ticketId = newState.ticket_id;
-      if ('connected_count' in newState) state.connectedCount = newState.connected_count || 0;
-      if ('voted_count' in newState) state.votedCount = newState.voted_count || Object.keys(state.votes).length;
-      
-      // Render everything
+    function renderAll() {
       renderTicket();
       renderVotes();
       updatePresenceBadge();
-      updateDebug();
     }
 
-    // Load initial state from server (fallback)
-    async function loadSessionState() {
-      try {
-        const response = await fetch("/estimations/session_state");
-        if (!response.ok) throw new Error("Failed to load session state");
-        
-        const data = await response.json();
-        console.log("[Initial Load] Session state:", data);
-        
-        updateState({
-          votes: data.votes,
-          revealed: data.revealed,
-          ticket_data: data.ticket_data,
-          ticket_id: data.ticket_id,
-          connected_count: data.connected_count,
-          voted_count: data.voted_count
-        });
-        
-      } catch (error) {
-        console.error("Error loading session state:", error);
-      }
-    }
-
-    // Create Action Cable consumer
+    // WebSocket subscription
     const cable = createConsumer();
     
     function setupSubscription() {
@@ -698,111 +615,64 @@
         { channel: "EstimationChannel" },
         {
           connected() {
-            console.log("[WebSocket] Connected to estimation channel");
+            console.log("[WebSocket] Connected");
             updateConnectionStatus(true);
             showStatus("Connected");
             
             // Start heartbeat
-            this.startHeartbeat();
+            this.heartbeatTimer = setInterval(() => {
+              this.perform('heartbeat');
+            }, 10000);
           },
           
           disconnected() {
-            console.log("[WebSocket] Disconnected from estimation channel");
+            console.log("[WebSocket] Disconnected");
             updateConnectionStatus(false);
-            this.stopHeartbeat();
-            state.initialized = false;
             
-            // Try to reconnect
+            if (this.heartbeatTimer) {
+              clearInterval(this.heartbeatTimer);
+            }
+            
+            // Reconnect after 2 seconds
             setTimeout(() => {
-              console.log("[WebSocket] Attempting to reconnect...");
               updateConnectionStatus(false, "Reconnecting...");
               setupSubscription();
-            }, 3000);
+            }, 2000);
           },
           
           received(data) {
             console.log("[WebSocket] Received:", data);
             
-            // Handle different action types
-            switch(data.action) {
-              case "initial_state":
-                // This is the complete state when first joining
-                console.log("[Initial State] Setting up from channel");
-                state.initialized = true;
-                updateState({
-                  votes: data.votes,
-                  revealed: data.revealed,
-                  ticket_data: data.ticket_data,
-                  ticket_id: data.ticket_id,
-                  connected_count: data.connected_count,
-                  voted_count: data.voted_count
-                });
-                showStatus("Session synchronized");
-                break;
-                
-              case "ticket_changed":
-                // New ticket loaded - votes are cleared
-                console.log("[Ticket Changed] Clearing votes for new ticket");
-                updateState({
-                  ticket_data: data.ticket_data,
-                  ticket_id: data.ticket_data ? data.ticket_data.key : null,
-                  votes: {},  // Clear votes
-                  revealed: false,  // Reset revealed
-                  voted_count: 0,
-                  connected_count: data.connected_count
-                });
-                showStatus("New ticket loaded - votes cleared");
-                break;
-                
-              case "state_updated":
-                // Vote, reveal, or clear action
-                console.log("[State Updated] Updating votes/reveal state");
-                updateState({
-                  votes: data.votes,
-                  revealed: data.revealed,
-                  voted_count: data.voted_count,
-                  connected_count: data.connected_count
-                });
-                
-                // Show appropriate message
-                if (data.revealed && Object.keys(data.votes).length > 0) {
-                  showStatus("Votes revealed!");
-                } else if (Object.keys(data.votes).length === 0) {
+            if (data.action === "sync_state") {
+              // Full state sync - this is the ONLY way state updates
+              syncState(data.state);
+              
+              // Don't show status for initial load
+              if (state.version > 0) {
+                // Determine what changed and show appropriate message
+                if (state.ticketData && !data.state.ticket_data) {
+                  showStatus("Ticket cleared");
+                } else if (!state.ticketData && data.state.ticket_data) {
+                  showStatus("Ticket loaded");
+                } else if (state.revealed && !data.state.revealed) {
                   showStatus("Votes cleared");
+                } else if (!state.revealed && data.state.revealed) {
+                  showStatus("Votes revealed!");
                 }
-                break;
-                
-              case "presence_updated":
-                // Someone joined/left
-                console.log("[Presence Updated]", data);
-                state.connectedCount = data.connected_count || 0;
-                state.votedCount = data.voted_count || 0;
-                updatePresenceBadge();
-                updateDebug();
-                break;
-                
-              default:
-                console.warn("[WebSocket] Unknown action:", data.action);
-            }
-          },
-          
-          startHeartbeat() {
-            this.heartbeatTimer = setInterval(() => {
-              this.perform('heartbeat');
-            }, 10000); // Every 10 seconds
-          },
-          
-          stopHeartbeat() {
-            if (this.heartbeatTimer) {
-              clearInterval(this.heartbeatTimer);
-              this.heartbeatTimer = null;
+              }
+              
+            } else if (data.action === "presence_update") {
+              // Only update presence counts
+              state.connectedCount = data.connected_count || 0;
+              state.votedCount = data.voted_count || 0;
+              updatePresenceBadge();
             }
           }
         }
       );
     }
 
-    // Event handlers - NO local state updates, wait for broadcasts
+    // Event handlers
     document.getElementById("fetchJiraBtn").addEventListener("click", async () => {
       const jiraInput = document.getElementById("jiraTicket").value.trim();
       const btn = document.getElementById("fetchJiraBtn");
@@ -814,7 +684,6 @@
 
       btn.disabled = true;
       btn.textContent = "Fetching...";
-      btn.classList.add("loading");
 
       try {
         const response = await fetch("/estimations/fetch_jira_ticket", {
@@ -827,21 +696,17 @@
         });
 
         const result = await response.json();
-
         if (!response.ok) {
-          throw new Error(result.error || `HTTP error! status: ${response.status}`);
+          throw new Error(result.error || "Failed to fetch ticket");
         }
 
-        // Clear input
         document.getElementById("jiraTicket").value = "";
-        // State update will come via broadcast
+        // State will update via broadcast
       } catch (error) {
-        console.error("Error fetching JIRA ticket:", error);
         showStatus(error.message, true);
       } finally {
         btn.disabled = false;
         btn.textContent = "Fetch from JIRA";
-        btn.classList.remove("loading");
       }
     });
 
@@ -870,21 +735,18 @@
         });
 
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          throw new Error("Failed to submit vote");
         }
 
-        // Clear selection
         document.getElementById("storyPoints").value = "";
-        showStatus("Vote submitted");
-        // State update will come via broadcast
+        // State will update via broadcast
       } catch (error) {
-        console.error("Error submitting vote:", error);
-        showStatus("Failed to submit vote", true);
+        showStatus(error.message, true);
       }
     });
 
     document.getElementById("revealBtn").addEventListener("click", async () => {
-      if (!state.votes || Object.keys(state.votes).length === 0) {
+      if (Object.keys(state.votes).length === 0) {
         alert("No votes to reveal");
         return;
       }
@@ -899,22 +761,21 @@
         });
 
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          throw new Error("Failed to reveal votes");
         }
-        // State update will come via broadcast
+        // State will update via broadcast
       } catch (error) {
-        console.error("Error revealing votes:", error);
-        showStatus("Failed to reveal votes", true);
+        showStatus(error.message, true);
       }
     });
 
     document.getElementById("clearBtn").addEventListener("click", async () => {
-      if (!state.votes || Object.keys(state.votes).length === 0) {
+      if (Object.keys(state.votes).length === 0) {
         alert("No votes to clear");
         return;
       }
 
-      if (!confirm("Are you sure you want to clear all votes?")) {
+      if (!confirm("Clear all votes?")) {
         return;
       }
 
@@ -928,27 +789,21 @@
         });
 
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          throw new Error("Failed to clear votes");
         }
-        // State update will come via broadcast
+        // State will update via broadcast
       } catch (error) {
-        console.error("Error clearing votes:", error);
-        showStatus("Failed to clear votes", true);
+        showStatus(error.message, true);
       }
     });
 
     // Initialize
-    async function init() {
+    function init() {
       console.log("[Init] Starting application");
-      
-      // Load initial state first (as fallback)
-      await loadSessionState();
-      
-      // Setup WebSocket subscription (will override with initial_state)
       setupSubscription();
+      renderAll();
     }
 
-    // Start the application
     init();
   </script>
 </body>

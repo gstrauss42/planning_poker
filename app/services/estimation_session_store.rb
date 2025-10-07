@@ -11,40 +11,36 @@ class EstimationSessionStore
       state || default_state
     end
 
-    # When setting a new ticket, clear votes and reveal state
     def set_ticket(ticket_data, ticket_title)
       state = get_state
       state[:ticket_data] = ticket_data
       state[:ticket_title] = ticket_title
-      # IMPORTANT: Clear votes and reveal state when changing tickets
+      state[:ticket_id] = ticket_data ? ticket_data[:key] : nil
+      # Clear votes when changing tickets
       state[:votes] = {}
       state[:revealed] = false
-      state[:timestamp] = Time.current.to_i
-      state[:ticket_id] = ticket_data ? ticket_data[:key] : nil
+      state[:version] = state[:version] + 1
       save_state(state)
-      Rails.logger.info "[SessionStore] Ticket set: #{ticket_title}, cleared votes"
+      Rails.logger.info "[Store] Ticket set: #{ticket_title}, version: #{state[:version]}"
       state
     end
 
     def add_vote(user_name, points)
       state = get_state
       state[:votes][user_name] = points
-      state[:timestamp] = Time.current.to_i
+      state[:version] = state[:version] + 1
       save_state(state)
-      Rails.logger.info "[SessionStore] Vote added: #{user_name} = #{points}, Total votes: #{state[:votes].count}"
+      Rails.logger.info "[Store] Vote added: #{user_name}=#{points}, version: #{state[:version]}"
       state
     end
 
     def reveal
       state = get_state
-      # Only reveal if there are votes
       if state[:votes].any?
         state[:revealed] = true
-        state[:timestamp] = Time.current.to_i
+        state[:version] = state[:version] + 1
         save_state(state)
-        Rails.logger.info "[SessionStore] Votes revealed"
-      else
-        Rails.logger.info "[SessionStore] Cannot reveal - no votes"
+        Rails.logger.info "[Store] Revealed votes, version: #{state[:version]}"
       end
       state
     end
@@ -53,16 +49,15 @@ class EstimationSessionStore
       state = get_state
       state[:votes] = {}
       state[:revealed] = false
-      state[:timestamp] = Time.current.to_i
+      state[:version] = state[:version] + 1
       save_state(state)
-      Rails.logger.info "[SessionStore] Votes cleared"
+      Rails.logger.info "[Store] Cleared votes, version: #{state[:version]}"
       state
     end
 
     def clear_all
       Rails.cache.delete(SESSION_KEY)
       Rails.cache.delete(PRESENCE_KEY)
-      Rails.logger.info "[SessionStore] All data cleared"
       default_state
     end
 
@@ -72,46 +67,36 @@ class EstimationSessionStore
       presence[connection_id] = Time.current.to_i
       save_presence(presence)
       cleanup_stale_connections
-      count = presence.keys.count
-      Rails.logger.info "[SessionStore] Connection added: #{connection_id}, Total: #{count}"
-      count
+      Rails.logger.info "[Store] Connection added: #{connection_id}"
     end
 
     def remove_connection(connection_id)
       presence = get_presence
       presence.delete(connection_id)
       save_presence(presence)
-      cleanup_stale_connections
-      count = presence.keys.count
-      Rails.logger.info "[SessionStore] Connection removed: #{connection_id}, Total: #{count}"
-      count
+      Rails.logger.info "[Store] Connection removed: #{connection_id}"
     end
 
     def heartbeat(connection_id)
       presence = get_presence
       presence[connection_id] = Time.current.to_i
       save_presence(presence)
-    end
-
-    def get_presence
-      Rails.cache.read(PRESENCE_KEY) || {}
+      
+      # Cleanup every 10 heartbeats
+      if rand(10) == 0
+        cleanup_stale_connections
+      end
     end
 
     def cleanup_stale_connections
       presence = get_presence
       current_time = Time.current.to_i
-      initial_count = presence.count
       
       presence.reject! do |_id, last_seen|
         current_time - last_seen > PRESENCE_EXPIRY.to_i
       end
       
-      if presence.count != initial_count
-        save_presence(presence)
-        Rails.logger.info "[SessionStore] Cleaned #{initial_count - presence.count} stale connections"
-      end
-      
-      presence
+      save_presence(presence)
     end
 
     def connected_count
@@ -122,25 +107,18 @@ class EstimationSessionStore
       get_state[:votes].count
     end
 
-    # Get complete session state - ensuring consistency
-    def get_complete_state
+    # Get complete state for broadcast
+    def get_broadcast_state
       state = get_state
-      presence_count = connected_count
-      
-      # Ensure consistency
-      if state[:votes].empty?
-        state[:revealed] = false
-      end
-      
       {
         ticket_data: state[:ticket_data],
         ticket_title: state[:ticket_title],
         ticket_id: state[:ticket_id],
-        votes: state[:votes] || {},
-        revealed: state[:revealed] || false,
-        connected_count: presence_count,
-        voted_count: (state[:votes] || {}).count,
-        timestamp: state[:timestamp]
+        votes: state[:votes],
+        revealed: state[:revealed],
+        connected_count: connected_count,
+        voted_count: state[:votes].count,
+        version: state[:version]
       }
     end
 
@@ -153,18 +131,22 @@ class EstimationSessionStore
         ticket_id: nil,
         votes: {},
         revealed: false,
-        timestamp: Time.current.to_i
+        version: 0
       }
     end
 
     def save_state(state)
-      Rails.cache.write(SESSION_KEY, state, expires_in: EXPIRY, race_condition_ttl: 5.seconds)
+      Rails.cache.write(SESSION_KEY, state, expires_in: EXPIRY)
       state
     end
 
     def save_presence(presence)
-      Rails.cache.write(PRESENCE_KEY, presence, expires_in: EXPIRY, race_condition_ttl: 5.seconds)
+      Rails.cache.write(PRESENCE_KEY, presence, expires_in: EXPIRY)
       presence
+    end
+
+    def get_presence
+      Rails.cache.read(PRESENCE_KEY) || {}
     end
   end
 end
