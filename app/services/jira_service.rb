@@ -128,49 +128,97 @@ class JiraService
     return nil if field_value.blank?
     
     # JIRA API v3 returns fields in Atlassian Document Format (ADF)
-    # which is a JSON structure. We need to convert it to plain text.
+    # which is a JSON structure. We need to convert it to HTML.
     if field_value.is_a?(Hash)
-      extract_text_from_adf(field_value)
+      extract_html_from_adf(field_value)
     else
-      field_value.to_s
+      ActionController::Base.helpers.sanitize(field_value.to_s)
     end
   end
 
-  def extract_text_from_adf(adf_content)
+  def extract_html_from_adf(adf_content)
     return "" unless adf_content.is_a?(Hash)
     
     content = adf_content["content"] || []
     
-    text_parts = content.map do |node|
-      extract_text_from_node(node)
+    html_parts = content.map do |node|
+      extract_html_from_node(node)
     end
     
-    text_parts.join("\n\n").strip
+    html_parts.join("\n")
   end
 
-  def extract_text_from_node(node)
+  def extract_html_from_node(node)
     return "" unless node.is_a?(Hash)
     
     case node["type"]
-    when "paragraph", "heading"
+    when "paragraph"
       content = node["content"] || []
-      content.map { |n| extract_text_from_node(n) }.join
+      text = content.map { |n| extract_html_from_node(n) }.join
+      text.present? ? "<p>#{text}</p>" : ""
+      
+    when "heading"
+      level = node.dig("attrs", "level") || 1
+      content = node["content"] || []
+      text = content.map { |n| extract_html_from_node(n) }.join
+      "<h#{level}>#{text}</h#{level}>"
+      
     when "text"
-      node["text"] || ""
-    when "bulletList", "orderedList"
+      text = ActionController::Base.helpers.sanitize(node["text"] || "")
+      # Handle text marks (bold, italic, etc.)
+      marks = node["marks"] || []
+      marks.each do |mark|
+        case mark["type"]
+        when "strong"
+          text = "<strong>#{text}</strong>"
+        when "em"
+          text = "<em>#{text}</em>"
+        when "code"
+          text = "<code>#{text}</code>"
+        when "underline"
+          text = "<u>#{text}</u>"
+        when "strike"
+          text = "<s>#{text}</s>"
+        end
+      end
+      text
+      
+    when "bulletList"
       items = node["content"] || []
-      items.map { |item| "• #{extract_text_from_node(item)}" }.join("\n")
+      items_html = items.map { |item| extract_html_from_node(item) }.join
+      "<ul>#{items_html}</ul>"
+      
+    when "orderedList"
+      items = node["content"] || []
+      items_html = items.map { |item| extract_html_from_node(item) }.join
+      "<ol>#{items_html}</ol>"
+      
     when "listItem"
       content = node["content"] || []
-      content.map { |n| extract_text_from_node(n) }.join
+      content_html = content.map { |n| extract_html_from_node(n) }.join
+      "<li>#{content_html}</li>"
+      
     when "codeBlock"
       content = node["content"] || []
-      code = content.map { |n| extract_text_from_node(n) }.join
-      "```\n#{code}\n```"
-    else
-      # Recursively handle nested content
+      code = content.map { |n| extract_html_from_node(n) }.join
+      language = node.dig("attrs", "language") || ""
+      "<pre><code class='language-#{language}'>#{ActionController::Base.helpers.sanitize(code)}</code></pre>"
+      
+    when "blockquote"
       content = node["content"] || []
-      content.map { |n| extract_text_from_node(n) }.join
+      content_html = content.map { |n| extract_html_from_node(n) }.join
+      "<blockquote>#{content_html}</blockquote>"
+      
+    when "hardBreak"
+      "<br>"
+      
+    when "rule"
+      "<hr>"
+      
+    else
+      # Recursively handle nested content for unknown types
+      content = node["content"] || []
+      content.map { |n| extract_html_from_node(n) }.join
     end
   end
 
@@ -184,28 +232,29 @@ class JiraService
     }
     
     # Common section headers (case-insensitive)
-    ac_headers = /(?:^|\n)(?:acceptance criteria|ac|acceptance)\s*:?\s*\n/i
-    tech_headers = /(?:^|\n)(?:technical writeup|technical details|tech writeup|implementation|technical notes)\s*:?\s*\n/i
+    # Look for headers in HTML or plain text
+    ac_pattern = /<h[1-6]>.*?(acceptance criteria|ac|acceptance).*?<\/h[1-6]>|(?:^|\n)(?:acceptance criteria|ac|acceptance)\s*:?\s*\n/i
+    tech_pattern = /<h[1-6]>.*?(technical writeup|technical details|tech writeup|implementation|technical notes).*?<\/h[1-6]>|(?:^|\n)(?:technical writeup|technical details|tech writeup|implementation|technical notes)\s*:?\s*\n/i
     
     # Split by acceptance criteria
-    if description =~ ac_headers
-      parts = description.split(ac_headers, 2)
+    if description =~ ac_pattern
+      parts = description.split(ac_pattern, 2)
       sections[:description] = parts[0].strip
       
       # Now split the rest by technical writeup
-      remaining = parts[1]
-      if remaining =~ tech_headers
-        ac_parts = remaining.split(tech_headers, 2)
+      remaining = parts[-1] # Get last part after split
+      if remaining =~ tech_pattern
+        ac_parts = remaining.split(tech_pattern, 2)
         sections[:acceptance_criteria] = ac_parts[0].strip
-        sections[:technical_writeup] = ac_parts[1].strip if ac_parts[1].present?
+        sections[:technical_writeup] = ac_parts[-1].strip if ac_parts[-1].present?
       else
         sections[:acceptance_criteria] = remaining.strip
       end
-    elsif description =~ tech_headers
+    elsif description =~ tech_pattern
       # No AC section, but has technical writeup
-      parts = description.split(tech_headers, 2)
+      parts = description.split(tech_pattern, 2)
       sections[:description] = parts[0].strip
-      sections[:technical_writeup] = parts[1].strip if parts[1].present?
+      sections[:technical_writeup] = parts[-1].strip if parts[-1].present?
     else
       # No sections found, everything is description
       sections[:description] = description.strip

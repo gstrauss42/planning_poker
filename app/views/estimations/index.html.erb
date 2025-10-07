@@ -114,8 +114,73 @@
     .section-content {
       color: #555;
       line-height: 1.6;
-      white-space: pre-wrap;
       font-size: 15px;
+    }
+    /* Styling for HTML content from JIRA */
+    .section-content h1, .section-content h2, .section-content h3,
+    .section-content h4, .section-content h5, .section-content h6 {
+      margin-top: 16px;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: #333;
+    }
+    .section-content h1 { font-size: 24px; }
+    .section-content h2 { font-size: 20px; }
+    .section-content h3 { font-size: 18px; }
+    .section-content h4 { font-size: 16px; }
+    .section-content h5 { font-size: 14px; }
+    .section-content h6 { font-size: 13px; }
+    .section-content p {
+      margin-bottom: 12px;
+    }
+    .section-content ul, .section-content ol {
+      margin: 12px 0;
+      padding-left: 28px;
+    }
+    .section-content li {
+      margin-bottom: 6px;
+    }
+    .section-content ul {
+      list-style-type: disc;
+    }
+    .section-content ol {
+      list-style-type: decimal;
+    }
+    .section-content code {
+      background: #f5f5f5;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+    }
+    .section-content pre {
+      background: #f5f5f5;
+      padding: 12px;
+      border-radius: 4px;
+      overflow-x: auto;
+      margin: 12px 0;
+    }
+    .section-content pre code {
+      background: none;
+      padding: 0;
+    }
+    .section-content blockquote {
+      border-left: 4px solid #ddd;
+      padding-left: 16px;
+      margin: 12px 0;
+      color: #666;
+      font-style: italic;
+    }
+    .section-content strong {
+      font-weight: 600;
+    }
+    .section-content em {
+      font-style: italic;
+    }
+    .section-content hr {
+      border: none;
+      border-top: 1px solid #ddd;
+      margin: 16px 0;
     }
     .collapsible-section {
       border: 1px solid #ddd;
@@ -385,6 +450,31 @@
       }
     }
 
+    // Helper function to update ticket data and render
+    function updateTicketData(ticketData, ticketTitle) {
+      currentTicketData = ticketData || null;
+      renderTicket();
+    }
+
+    // Helper function to update vote data and render
+    function updateVote(userName, points) {
+      votes[userName] = points;
+      renderVotes();
+    }
+
+    // Helper function to reveal votes
+    function revealVotes() {
+      revealed = true;
+      renderVotes();
+    }
+
+    // Helper function to clear votes
+    function clearVotes() {
+      Object.keys(votes).forEach(key => delete votes[key]);
+      revealed = false;
+      renderVotes();
+    }
+
     // Create Action Cable consumer
     const cable = createConsumer();
       
@@ -406,21 +496,16 @@
           console.log("Received data:", data);
           
           if (data.action === "submit") {
-            votes[data.user_name] = data.points;
-            renderVotes();
+            updateVote(data.user_name, data.points);
             showStatus(`${data.user_name} voted`);
           } else if (data.action === "reveal") {
-            revealed = true;
-            renderVotes();
+            revealVotes();
             showStatus("All estimates revealed!");
           } else if (data.action === "clear") {
-            Object.keys(votes).forEach(key => delete votes[key]);
-            revealed = false;
-            renderVotes();
+            clearVotes();
             showStatus("Votes cleared!");
           } else if (data.action === "set_ticket") {
-            currentTicketData = data.ticket_data || null;
-            renderTicket();
+            updateTicketData(data.ticket_data, data.ticket_title);
             showStatus("Ticket updated");
           } else if (data.action === "presence_update") {
             connectedCount = data.connected_count;
@@ -493,7 +578,7 @@
         html += `
           <div class="ticket-section-block">
             <div class="section-header">Description</div>
-            <div class="section-content">${escapeHtml(currentTicketData.description)}</div>
+            <div class="section-content">${currentTicketData.description}</div>
           </div>
         `;
       }
@@ -503,7 +588,7 @@
         html += `
           <div class="ticket-section-block">
             <div class="section-header">Acceptance Criteria</div>
-            <div class="section-content">${escapeHtml(currentTicketData.acceptance_criteria)}</div>
+            <div class="section-content">${currentTicketData.acceptance_criteria}</div>
           </div>
         `;
       }
@@ -518,7 +603,7 @@
                 <span class="collapse-icon" id="techCollapseIcon">▼</span>
               </div>
               <div class="collapsible-content" id="technicalWriteupContent">
-                <div class="section-content">${escapeHtml(currentTicketData.technical_writeup)}</div>
+                <div class="section-content">${currentTicketData.technical_writeup}</div>
               </div>
             </div>
           </div>
@@ -597,6 +682,10 @@
         }
 
         console.log("JIRA ticket fetched successfully:", result);
+        
+        // Immediately update local state (don't wait for ActionCable broadcast)
+        updateTicketData(result.ticket, result.ticket.formatted_title);
+        
         showStatus("JIRA ticket loaded!");
         document.getElementById("jiraTicket").value = "";
       } catch (error) {
@@ -637,6 +726,10 @@
         }
 
         console.log("Vote submitted successfully");
+        
+        // Immediately update local state (don't wait for ActionCable broadcast)
+        updateVote(userName, points);
+        
         document.getElementById("storyPoints").value = "";
       } catch (error) {
         console.error("Error submitting vote:", error);
@@ -660,6 +753,9 @@
         }
 
         console.log("Votes revealed successfully");
+        
+        // Immediately update local state (don't wait for ActionCable broadcast)
+        revealVotes();
       } catch (error) {
         console.error("Error revealing votes:", error);
         alert("Failed to reveal votes. Check console for details.");
@@ -682,6 +778,9 @@
         }
 
         console.log("Votes cleared successfully");
+        
+        // Immediately update local state (don't wait for ActionCable broadcast)
+        clearVotes();
       } catch (error) {
         console.error("Error clearing votes:", error);
         alert("Failed to clear votes. Check console for details.");
