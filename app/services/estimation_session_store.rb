@@ -15,31 +15,42 @@ class EstimationSessionStore
       state = get_state
       state[:ticket_data] = ticket_data
       state[:ticket_title] = ticket_title
+      state[:timestamp] = Time.current.to_i
       save_state(state)
+      Rails.logger.info "[SessionStore] Ticket set: #{ticket_title}"
+      state
     end
 
     def add_vote(user_name, points)
       state = get_state
       state[:votes][user_name] = points
+      state[:timestamp] = Time.current.to_i
       save_state(state)
+      Rails.logger.info "[SessionStore] Vote added: #{user_name} = #{points}, Total votes: #{state[:votes].count}"
+      state
     end
 
     def reveal
       state = get_state
       state[:revealed] = true
+      state[:timestamp] = Time.current.to_i
       save_state(state)
+      state
     end
 
     def clear_votes
       state = get_state
       state[:votes] = {}
       state[:revealed] = false
+      state[:timestamp] = Time.current.to_i
       save_state(state)
+      state
     end
 
     def clear_all
       Rails.cache.delete(SESSION_KEY)
       Rails.cache.delete(PRESENCE_KEY)
+      default_state
     end
 
     # Presence tracking
@@ -47,7 +58,8 @@ class EstimationSessionStore
       presence = get_presence
       presence[connection_id] = Time.current.to_i
       save_presence(presence)
-      Rails.logger.info "Added connection: #{connection_id}, Total: #{presence.keys.count}"
+      cleanup_stale_connections
+      presence.keys.count
     end
 
     def remove_connection(connection_id)
@@ -55,17 +67,13 @@ class EstimationSessionStore
       presence.delete(connection_id)
       save_presence(presence)
       cleanup_stale_connections
-      Rails.logger.info "Removed connection: #{connection_id}, Total: #{presence.keys.count}"
+      presence.keys.count
     end
 
     def heartbeat(connection_id)
       presence = get_presence
       presence[connection_id] = Time.current.to_i
       save_presence(presence)
-      # Periodic cleanup
-      if Time.current.to_i % 10 == 0
-        cleanup_stale_connections
-      end
     end
 
     def get_presence
@@ -75,17 +83,12 @@ class EstimationSessionStore
     def cleanup_stale_connections
       presence = get_presence
       current_time = Time.current.to_i
-      initial_count = presence.count
       
       presence.reject! do |_id, last_seen|
         current_time - last_seen > PRESENCE_EXPIRY.to_i
       end
       
-      if presence.count != initial_count
-        save_presence(presence)
-        Rails.logger.info "Cleaned up #{initial_count - presence.count} stale connections"
-      end
-      
+      save_presence(presence)
       presence
     end
 
@@ -97,14 +100,20 @@ class EstimationSessionStore
       get_state[:votes].count
     end
 
-    # Get complete session state for initial load
+    # Get complete session state
     def get_complete_state
-      cleanup_stale_connections
       state = get_state
-      state.merge(
-        connected_count: connected_count,
-        voted_count: voted_count
-      )
+      presence_count = connected_count
+      
+      {
+        ticket_data: state[:ticket_data],
+        ticket_title: state[:ticket_title],
+        votes: state[:votes],
+        revealed: state[:revealed],
+        connected_count: presence_count,
+        voted_count: state[:votes].count,
+        timestamp: state[:timestamp]
+      }
     end
 
     private
@@ -114,17 +123,18 @@ class EstimationSessionStore
         ticket_data: nil,
         ticket_title: nil,
         votes: {},
-        revealed: false
+        revealed: false,
+        timestamp: Time.current.to_i
       }
     end
 
     def save_state(state)
-      Rails.cache.write(SESSION_KEY, state, expires_in: EXPIRY)
+      Rails.cache.write(SESSION_KEY, state, expires_in: EXPIRY, race_condition_ttl: 5.seconds)
       state
     end
 
     def save_presence(presence)
-      Rails.cache.write(PRESENCE_KEY, presence, expires_in: EXPIRY)
+      Rails.cache.write(PRESENCE_KEY, presence, expires_in: EXPIRY, race_condition_ttl: 5.seconds)
       presence
     end
   end

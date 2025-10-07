@@ -422,18 +422,18 @@
   <script type="module">
     import { createConsumer } from "@rails/actioncable"
     
-    // State management
-    let votes = {};
-    let revealed = false;
-    let currentTicketData = null;
-    let connectedCount = 0;
-    let votedCount = 0;
-    let isConnected = false;
+    // Global state - single source of truth from server
+    const state = {
+      votes: {},
+      revealed: false,
+      ticketData: null,
+      connectedCount: 0,
+      votedCount: 0
+    };
     
     let subscription = null;
     const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
-    let reconnectTimer = null;
-    let heartbeatInterval = null;
+    let isConnected = false;
 
     function updateConnectionStatus(connected, text = null) {
       const indicator = document.getElementById("connectionIndicator");
@@ -469,9 +469,9 @@
 
     function updatePresenceBadge() {
       const badge = document.getElementById("presenceBadge");
-      badge.textContent = `${votedCount}/${connectedCount} voted`;
+      badge.textContent = `${state.votedCount}/${state.connectedCount} voted`;
       
-      if (connectedCount > 0 && votedCount === connectedCount) {
+      if (state.connectedCount > 0 && state.votedCount === state.connectedCount) {
         badge.classList.add("all-voted");
       } else {
         badge.classList.remove("all-voted");
@@ -484,35 +484,10 @@
       return div.innerHTML;
     }
 
-    function updateTicketData(ticketData) {
-      currentTicketData = ticketData;
-      renderTicket();
-    }
-
-    function updateVote(userName, points) {
-      votes[userName] = points;
-      votedCount = Object.keys(votes).length;
-      renderVotes();
-      updatePresenceBadge();
-    }
-
-    function revealVotes() {
-      revealed = true;
-      renderVotes();
-    }
-
-    function clearVotes() {
-      votes = {};
-      revealed = false;
-      votedCount = 0;
-      renderVotes();
-      updatePresenceBadge();
-    }
-
     function renderTicket() {
       const display = document.getElementById("ticketDisplay");
       
-      if (!currentTicketData) {
+      if (!state.ticketData) {
         display.innerHTML = '<span>No ticket loaded - Enter a JIRA ticket to begin</span>';
         display.classList.add("empty");
         return;
@@ -523,24 +498,24 @@
       let html = `
         <div class="ticket-header">
           <div>
-            <div class="ticket-title">${escapeHtml(currentTicketData.formatted_title || currentTicketData.key)}</div>
+            <div class="ticket-title">${escapeHtml(state.ticketData.formatted_title || state.ticketData.key)}</div>
             <div class="ticket-meta">
-              ${currentTicketData.status ? `
+              ${state.ticketData.status ? `
                 <div class="ticket-meta-item">
                   <span class="ticket-meta-label">Status:</span>
-                  <span>${escapeHtml(currentTicketData.status)}</span>
+                  <span>${escapeHtml(state.ticketData.status)}</span>
                 </div>
               ` : ''}
-              ${currentTicketData.priority ? `
+              ${state.ticketData.priority ? `
                 <div class="ticket-meta-item">
                   <span class="ticket-meta-label">Priority:</span>
-                  <span>${escapeHtml(currentTicketData.priority)}</span>
+                  <span>${escapeHtml(state.ticketData.priority)}</span>
                 </div>
               ` : ''}
-              ${currentTicketData.assignee ? `
+              ${state.ticketData.assignee ? `
                 <div class="ticket-meta-item">
                   <span class="ticket-meta-label">Assignee:</span>
-                  <span>${escapeHtml(currentTicketData.assignee)}</span>
+                  <span>${escapeHtml(state.ticketData.assignee)}</span>
                 </div>
               ` : ''}
             </div>
@@ -549,25 +524,25 @@
         <div class="ticket-content">
       `;
 
-      if (currentTicketData.description && typeof currentTicketData.description === 'string' && currentTicketData.description.trim()) {
+      if (state.ticketData.description && typeof state.ticketData.description === 'string' && state.ticketData.description.trim()) {
         html += `
           <div class="ticket-section-block">
             <div class="section-header">Description</div>
-            <div class="section-content">${currentTicketData.description}</div>
+            <div class="section-content">${state.ticketData.description}</div>
           </div>
         `;
       }
 
-      if (currentTicketData.acceptance_criteria && typeof currentTicketData.acceptance_criteria === 'string' && currentTicketData.acceptance_criteria.trim()) {
+      if (state.ticketData.acceptance_criteria && typeof state.ticketData.acceptance_criteria === 'string' && state.ticketData.acceptance_criteria.trim()) {
         html += `
           <div class="ticket-section-block">
             <div class="section-header">Acceptance Criteria</div>
-            <div class="section-content">${currentTicketData.acceptance_criteria}</div>
+            <div class="section-content">${state.ticketData.acceptance_criteria}</div>
           </div>
         `;
       }
 
-      if (currentTicketData.technical_writeup && typeof currentTicketData.technical_writeup === 'string' && currentTicketData.technical_writeup.trim()) {
+      if (state.ticketData.technical_writeup && typeof state.ticketData.technical_writeup === 'string' && state.ticketData.technical_writeup.trim()) {
         html += `
           <div class="ticket-section-block">
             <div class="collapsible-section">
@@ -576,7 +551,7 @@
                 <span class="collapse-icon" id="techCollapseIcon">▼</span>
               </div>
               <div class="collapsible-content" id="technicalWriteupContent">
-                <div class="section-content">${currentTicketData.technical_writeup}</div>
+                <div class="section-content">${state.ticketData.technical_writeup}</div>
               </div>
             </div>
           </div>
@@ -603,16 +578,16 @@
     function renderVotes() {
       const list = document.getElementById("participantsList");
       
-      if (Object.keys(votes).length === 0) {
+      if (Object.keys(state.votes).length === 0) {
         list.innerHTML = '<div class="empty-state">No votes yet</div>';
         return;
       }
 
-      list.innerHTML = Object.entries(votes)
+      list.innerHTML = Object.entries(state.votes)
         .map(([name, points]) => `
           <div class="participant">
             <span class="participant-name">${escapeHtml(name)}</span>
-            ${revealed ? 
+            ${state.revealed ? 
               `<span class="points">${escapeHtml(points)}</span>` : 
               `<span class="participant-status">✓ Voted</span>`
             }
@@ -621,7 +596,36 @@
         .join('');
     }
 
-    // Create Action Cable consumer with reconnection logic
+    function renderAll() {
+      renderTicket();
+      renderVotes();
+      updatePresenceBadge();
+    }
+
+    // Load initial state from server
+    async function loadSessionState() {
+      try {
+        const response = await fetch("/estimations/session_state");
+        if (!response.ok) throw new Error("Failed to load session state");
+        
+        const data = await response.json();
+        console.log("Loaded session state:", data);
+        
+        // Update state from server
+        state.votes = data.votes || {};
+        state.revealed = data.revealed || false;
+        state.ticketData = data.ticket_data || null;
+        state.connectedCount = data.connected_count || 0;
+        state.votedCount = data.voted_count || 0;
+        
+        // Render everything
+        renderAll();
+      } catch (error) {
+        console.error("Error loading session state:", error);
+      }
+    }
+
+    // Create Action Cable consumer
     const cable = createConsumer();
     
     function setupSubscription() {
@@ -637,12 +641,6 @@
             updateConnectionStatus(true);
             showStatus("Connected");
             
-            // Clear any reconnection timer
-            if (reconnectTimer) {
-              clearTimeout(reconnectTimer);
-              reconnectTimer = null;
-            }
-            
             // Start heartbeat
             this.startHeartbeat();
           },
@@ -652,84 +650,90 @@
             updateConnectionStatus(false);
             this.stopHeartbeat();
             
-            // Attempt to reconnect after 3 seconds
-            if (!reconnectTimer) {
-              reconnectTimer = setTimeout(() => {
-                console.log("Attempting to reconnect...");
-                updateConnectionStatus(false, "Reconnecting...");
-                this.perform('heartbeat');
-              }, 3000);
-            }
+            // Try to reconnect
+            setTimeout(() => {
+              console.log("Attempting to reconnect...");
+              updateConnectionStatus(false, "Reconnecting...");
+              setupSubscription();
+            }, 3000);
           },
           
           received(data) {
-            console.log("Received data:", data);
+            console.log("Received broadcast:", data);
             
-            // Handle initial state message (sent when joining)
-            if (data.action === "initial_state") {
-              console.log("Received initial state");
-              votes = data.votes || {};
-              revealed = data.revealed || false;
-              currentTicketData = data.ticket_data || null;
-              connectedCount = data.connected_count || 0;
-              votedCount = data.voted_count || 0;
-              
-              // Render everything with the initial state
-              renderTicket();
-              renderVotes();
-              updatePresenceBadge();
-              showStatus("Joined session");
-              return;
-            }
-            
-            // Update state based on action
+            // Handle different action types
             switch(data.action) {
-              case "submit":
-                updateVote(data.user_name, data.points);
-                showStatus(`${data.user_name} voted`);
+              case "initial_state":
+                // Complete state sent when joining
+                state.votes = data.votes || {};
+                state.revealed = data.revealed || false;
+                state.ticketData = data.ticket_data || null;
+                state.connectedCount = data.connected_count || 0;
+                state.votedCount = data.voted_count || 0;
+                renderAll();
+                showStatus("Session synchronized");
                 break;
                 
-              case "reveal":
-                revealVotes();
-                showStatus("All estimates revealed!");
+              case "ticket_updated":
+                // Ticket was loaded/updated
+                state.ticketData = data.ticket_data;
+                renderTicket();
+                showStatus("Ticket loaded");
                 break;
                 
-              case "clear":
-                clearVotes();
-                showStatus("Votes cleared!");
+              case "votes_updated":
+                // Someone voted
+                state.votes = data.votes || {};
+                state.votedCount = data.voted_count || 0;
+                state.connectedCount = data.connected_count || 0;
+                renderVotes();
+                updatePresenceBadge();
                 break;
                 
-              case "set_ticket":
-                updateTicketData(data.ticket_data);
-                showStatus("Ticket updated");
+              case "reveal_updated":
+                // Votes were revealed
+                state.revealed = data.revealed;
+                state.votes = data.votes || {};
+                renderVotes();
+                showStatus("Votes revealed!");
                 break;
                 
-              case "presence_update":
-                connectedCount = data.connected_count;
-                votedCount = data.voted_count;
+              case "votes_cleared":
+                // Votes were cleared
+                state.votes = {};
+                state.revealed = false;
+                state.votedCount = 0;
+                state.connectedCount = data.connected_count || 0;
+                renderAll();
+                showStatus("Votes cleared");
+                break;
+                
+              case "presence_updated":
+                // Someone joined/left
+                state.connectedCount = data.connected_count || 0;
+                state.votedCount = data.voted_count || 0;
                 updatePresenceBadge();
                 break;
             }
           },
           
           startHeartbeat() {
-            this.stopHeartbeat();
-            heartbeatInterval = setInterval(() => {
+            this.heartbeatTimer = setInterval(() => {
               this.perform('heartbeat');
-            }, 10000);
+            }, 10000); // Every 10 seconds
           },
           
           stopHeartbeat() {
-            if (heartbeatInterval) {
-              clearInterval(heartbeatInterval);
-              heartbeatInterval = null;
+            if (this.heartbeatTimer) {
+              clearInterval(this.heartbeatTimer);
+              this.heartbeatTimer = null;
             }
           }
         }
       );
     }
 
-    // Event handlers
+    // Event handlers - NO local state updates, wait for broadcasts
     document.getElementById("fetchJiraBtn").addEventListener("click", async () => {
       const jiraInput = document.getElementById("jiraTicket").value.trim();
       const btn = document.getElementById("fetchJiraBtn");
@@ -759,10 +763,9 @@
           throw new Error(result.error || `HTTP error! status: ${response.status}`);
         }
 
-        // Immediately update local state for the user who fetched it
-        updateTicketData(result.ticket);
-        showStatus("JIRA ticket loaded!");
+        // Clear input
         document.getElementById("jiraTicket").value = "";
+        // State update will come via broadcast
       } catch (error) {
         console.error("Error fetching JIRA ticket:", error);
         showStatus(error.message, true);
@@ -796,10 +799,9 @@
           throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        // Immediately update local state for the user who voted
-        updateVote(userName, points);
+        // Clear selection
         document.getElementById("storyPoints").value = "";
-        showStatus("Vote submitted!");
+        // State update will come via broadcast
       } catch (error) {
         console.error("Error submitting vote:", error);
         showStatus("Failed to submit vote", true);
@@ -819,9 +821,7 @@
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
-
-        // Immediately update local state
-        revealVotes();
+        // State update will come via broadcast
       } catch (error) {
         console.error("Error revealing votes:", error);
         showStatus("Failed to reveal votes", true);
@@ -845,9 +845,7 @@
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
-
-        // Immediately update local state
-        clearVotes();
+        // State update will come via broadcast
       } catch (error) {
         console.error("Error clearing votes:", error);
         showStatus("Failed to clear votes", true);
@@ -855,14 +853,12 @@
     });
 
     // Initialize
-    function init() {
+    async function init() {
+      // Load initial state
+      await loadSessionState();
+      
       // Setup WebSocket subscription
       setupSubscription();
-      
-      // Initial render with empty state
-      renderTicket();
-      renderVotes();
-      updatePresenceBadge();
     }
 
     // Start the application

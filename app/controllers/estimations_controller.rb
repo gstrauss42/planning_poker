@@ -6,26 +6,23 @@ class EstimationsController < ApplicationController
     user_name = params[:user_name]
     points = params[:points]
 
-    # Store in session
-    EstimationSessionStore.add_vote(user_name, points)
+    # Validate input
+    if user_name.blank? || points.blank?
+      render json: { error: "Name and points are required" }, status: :bad_request
+      return
+    end
 
-    # Broadcast to all clients (including sender for consistency)
+    # Store in session and get updated state
+    state = EstimationSessionStore.add_vote(user_name, points)
+
+    # Broadcast complete vote state to ALL clients
     ActionCable.server.broadcast(
       "estimation_session",
       {
-        action: "submit",
-        user_name: user_name,
-        points: points
-      }
-    )
-
-    # Broadcast updated presence count
-    ActionCable.server.broadcast(
-      "estimation_session",
-      {
-        action: "presence_update",
-        connected_count: EstimationSessionStore.connected_count,
-        voted_count: EstimationSessionStore.voted_count
+        action: "votes_updated",
+        votes: state[:votes],
+        voted_count: state[:votes].count,
+        connected_count: EstimationSessionStore.connected_count
       }
     )
 
@@ -33,13 +30,17 @@ class EstimationsController < ApplicationController
   end
 
   def reveal
-    # Update session
-    EstimationSessionStore.reveal
+    # Update session and get state
+    state = EstimationSessionStore.reveal
 
-    # Broadcast to all clients
+    # Broadcast to ALL clients
     ActionCable.server.broadcast(
       "estimation_session",
-      { action: "reveal" }
+      {
+        action: "reveal_updated",
+        revealed: true,
+        votes: state[:votes]
+      }
     )
 
     render json: { success: true }
@@ -47,39 +48,17 @@ class EstimationsController < ApplicationController
 
   def clear
     # Clear votes in session
-    EstimationSessionStore.clear_votes
+    state = EstimationSessionStore.clear_votes
 
-    # Broadcast to all clients
-    ActionCable.server.broadcast(
-      "estimation_session",
-      { action: "clear" }
-    )
-
-    # Broadcast updated presence count
+    # Broadcast to ALL clients
     ActionCable.server.broadcast(
       "estimation_session",
       {
-        action: "presence_update",
-        connected_count: EstimationSessionStore.connected_count,
-        voted_count: EstimationSessionStore.voted_count
-      }
-    )
-
-    render json: { success: true }
-  end
-
-  def set_ticket
-    ticket_title = params[:ticket_title]
-
-    # Store in session
-    EstimationSessionStore.set_ticket(nil, ticket_title)
-
-    # Broadcast to all clients
-    ActionCable.server.broadcast(
-      "estimation_session",
-      {
-        action: "set_ticket",
-        ticket_title: ticket_title
+        action: "votes_cleared",
+        votes: {},
+        revealed: false,
+        voted_count: 0,
+        connected_count: EstimationSessionStore.connected_count
       }
     )
 
@@ -101,39 +80,32 @@ class EstimationsController < ApplicationController
       # Store in session
       EstimationSessionStore.set_ticket(ticket_data, ticket_data[:formatted_title])
       
-      # Broadcast to all clients
+      # Broadcast to ALL clients with complete ticket data
       ActionCable.server.broadcast(
         "estimation_session",
         {
-          action: "set_ticket",
-          ticket_title: ticket_data[:formatted_title],
-          ticket_data: ticket_data
+          action: "ticket_updated",
+          ticket_data: ticket_data,
+          ticket_title: ticket_data[:formatted_title]
         }
       )
 
       render json: { 
-        success: true, 
-        ticket: ticket_data 
+        success: true
       }
     rescue JiraService::JiraError => e
       Rails.logger.error("JIRA fetch error: #{e.message}")
       render json: { error: e.message }, status: :unprocessable_entity
     rescue StandardError => e
       Rails.logger.error("Unexpected error fetching JIRA ticket: #{e.message}")
+      Rails.logger.error(e.backtrace.join("\n"))
       render json: { error: "An unexpected error occurred" }, status: :internal_server_error
     end
   end
 
   # This endpoint returns the complete session state
-  # Called when page loads to sync initial state
   def get_session_state
     state = EstimationSessionStore.get_complete_state
     render json: state
-  end
-
-  # Manual cleanup endpoint (optional - can be called periodically)
-  def cleanup_presence
-    result = EstimationSessionStore.force_cleanup
-    render json: result
   end
 end
