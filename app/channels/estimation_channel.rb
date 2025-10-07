@@ -4,6 +4,12 @@ class EstimationChannel < ApplicationCable::Channel
     
     # Track this connection
     EstimationSessionStore.add_connection(connection_identifier)
+    
+    # Send current connected count directly to this client
+    transmit({
+      action: "presence_update",
+      connected_count: EstimationSessionStore.connected_count
+    })
   end
 
   def unsubscribed

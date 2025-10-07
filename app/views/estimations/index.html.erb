@@ -487,12 +487,8 @@
           renderVotes();
         }
         
-        // Load connected count from HTTP (will be updated via ActionCable broadcasts too)
-        if (typeof state.connected_count !== 'undefined') {
-          connectedCount = state.connected_count;
-        }
-        
-        updatePresenceBadge(); // Update badge after loading everything
+        // connected_count comes ONLY from ActionCable (via transmit on subscribe)
+        updatePresenceBadge();
         
         console.log("Initial state applied successfully");
       } catch (error) {
@@ -531,8 +527,10 @@
           console.log("Connected to estimation channel");
           showStatus("Connected");
           
-          // Fetch initial state after connection is established
-          fetchInitialState();
+          // Small delay to ensure connection is fully established and counted
+          setTimeout(() => {
+            fetchInitialState();
+          }, 100);
           
           // Start sending heartbeats every 10 seconds
           this.startHeartbeat();
@@ -557,8 +555,10 @@
             updateTicketData(data.ticket_data, data.ticket_title);
             showStatus("Ticket updated");
           } else if (data.action === "presence_update") {
+            console.log("Presence update received - connected_count:", data.connected_count);
             connectedCount = data.connected_count;
             updatePresenceBadge();
+            console.log("Updated badge - voted/connected:", Object.keys(votes).length, "/", connectedCount);
           }
         },
         startHeartbeat() {
