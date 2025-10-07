@@ -420,7 +420,6 @@
     let currentTicketData = null;
     let connectedCount = 0;
     let subscription = null;
-    let hasReceivedInitialPresence = false;
     const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 
     function showStatus(message, isError = false) {
@@ -528,7 +527,8 @@
           console.log("Connected to estimation channel");
           showStatus("Connected");
           
-          // Don't fetch state immediately - wait for initial presence_update first
+          // Fetch initial state immediately (delayed broadcast will update count)
+          fetchInitialState();
           
           // Start sending heartbeats every 10 seconds
           this.startHeartbeat();
@@ -557,13 +557,6 @@
             connectedCount = data.connected_count;
             updatePresenceBadge();
             console.log("Updated badge - voted/connected:", Object.keys(votes).length, "/", connectedCount);
-            
-            // Fetch initial state after receiving first presence update
-            if (!hasReceivedInitialPresence) {
-              hasReceivedInitialPresence = true;
-              console.log("First presence update received, fetching initial state");
-              fetchInitialState();
-            }
           }
         },
         startHeartbeat() {
