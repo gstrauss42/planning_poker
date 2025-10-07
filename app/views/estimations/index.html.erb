@@ -453,7 +453,6 @@
 
     // Helper function to update ticket data and render
     function updateTicketData(ticketData, ticketTitle) {
-      console.log("Updating ticket data:", ticketData, ticketTitle);
       currentTicketData = ticketData || null;
       renderTicket();
     }
@@ -537,7 +536,7 @@
           this.stopHeartbeat();
         },
         received(data) {
-          console.log("Received:", data.action, data);
+          console.log("Received:", data.action);
           
           if (data.action === "submit") {
             updateVote(data.user_name, data.points);

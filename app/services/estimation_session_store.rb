@@ -3,7 +3,7 @@ class EstimationSessionStore
   SESSION_KEY = "estimation_session_state"
   PRESENCE_KEY = "estimation_session_presence"
   EXPIRY = 30.minutes
-  PRESENCE_EXPIRY = 45.seconds
+  PRESENCE_EXPIRY = 30.seconds
 
   class << self
     def get_state
@@ -47,7 +47,6 @@ class EstimationSessionStore
       presence = get_presence
       presence[connection_id] = Time.current.to_i
       save_presence(presence)
-      Rails.logger.info("Connection added: #{connection_id}. Total: #{presence.count}")
       broadcast_presence_count
     end
 
@@ -55,7 +54,6 @@ class EstimationSessionStore
       presence = get_presence
       presence.delete(connection_id)
       save_presence(presence)
-      Rails.logger.info("Connection removed: #{connection_id}. Total: #{presence.count}")
       broadcast_presence_count
     end
 
@@ -72,15 +70,10 @@ class EstimationSessionStore
     def cleanup_stale_connections
       presence = get_presence
       current_time = Time.current.to_i
-      stale_count = 0
       
       presence.reject! do |_id, last_seen|
-        is_stale = current_time - last_seen > PRESENCE_EXPIRY
-        stale_count += 1 if is_stale
-        is_stale
+        current_time - last_seen > PRESENCE_EXPIRY
       end
-      
-      Rails.logger.info("Cleaned up #{stale_count} stale connections") if stale_count > 0
       
       save_presence(presence)
     end

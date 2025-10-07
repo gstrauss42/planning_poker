@@ -19,15 +19,6 @@ class EstimationsController < ApplicationController
       }
     )
 
-    # Broadcast updated presence count
-    ActionCable.server.broadcast(
-      "estimation_session",
-      {
-        action: "presence_update",
-        connected_count: EstimationSessionStore.connected_count
-      }
-    )
-
     head :ok
   end
 
@@ -52,15 +43,6 @@ class EstimationsController < ApplicationController
     ActionCable.server.broadcast(
       "estimation_session",
       { action: "clear" }
-    )
-
-    # Broadcast updated presence count
-    ActionCable.server.broadcast(
-      "estimation_session",
-      {
-        action: "presence_update",
-        connected_count: EstimationSessionStore.connected_count
-      }
     )
 
     head :ok
@@ -124,8 +106,6 @@ class EstimationsController < ApplicationController
 
   def get_session_state
     state = EstimationSessionStore.get_state
-    
-    # Don't include connected_count - it comes only from ActionCable
     render json: state
   end
 end
