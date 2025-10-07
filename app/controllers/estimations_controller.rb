@@ -130,4 +130,10 @@ class EstimationsController < ApplicationController
     state = EstimationSessionStore.get_complete_state
     render json: state
   end
+
+  # Manual cleanup endpoint (optional - can be called periodically)
+  def cleanup_presence
+    result = EstimationSessionStore.force_cleanup
+    render json: result
+  end
 end

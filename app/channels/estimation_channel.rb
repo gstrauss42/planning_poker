@@ -6,12 +6,33 @@ class EstimationChannel < ApplicationCable::Channel
     EstimationSessionStore.add_connection(connection_identifier)
     
     # Send current session state to the newly connected client
+    # Send as a single complete state message
     transmit_current_state
+    
+    # Broadcast presence update to ALL clients (including the new one)
+    ActionCable.server.broadcast(
+      "estimation_session",
+      {
+        action: "presence_update",
+        connected_count: EstimationSessionStore.connected_count,
+        voted_count: EstimationSessionStore.voted_count
+      }
+    )
   end
 
   def unsubscribed
     # Remove this connection
     EstimationSessionStore.remove_connection(connection_identifier)
+    
+    # Broadcast updated presence to remaining clients
+    ActionCable.server.broadcast(
+      "estimation_session",
+      {
+        action: "presence_update",
+        connected_count: EstimationSessionStore.connected_count,
+        voted_count: EstimationSessionStore.voted_count
+      }
+    )
   end
 
   def heartbeat
@@ -29,36 +50,13 @@ class EstimationChannel < ApplicationCable::Channel
   def transmit_current_state
     state = EstimationSessionStore.get_state
     
-    # Send ticket data if exists
-    if state[:ticket_data].present? || state[:ticket_title].present?
-      transmit({
-        action: "set_ticket",
-        ticket_title: state[:ticket_title],
-        ticket_data: state[:ticket_data]
-      })
-    end
-    
-    # Send all votes
-    if state[:votes].present?
-      state[:votes].each do |user_name, points|
-        transmit({
-          action: "submit",
-          user_name: user_name,
-          points: points
-        })
-      end
-    end
-    
-    # Send revealed state if needed
-    if state[:revealed]
-      transmit({
-        action: "reveal"
-      })
-    end
-
-    # Send presence count
+    # Send complete state as a single message
     transmit({
-      action: "presence_update",
+      action: "initial_state",
+      ticket_title: state[:ticket_title],
+      ticket_data: state[:ticket_data],
+      votes: state[:votes],
+      revealed: state[:revealed],
       connected_count: EstimationSessionStore.connected_count,
       voted_count: EstimationSessionStore.voted_count
     })

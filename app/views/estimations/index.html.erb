@@ -728,10 +728,8 @@
             // Start heartbeat
             this.startHeartbeat();
             
-            // Load current state after reconnection
-            if (state.lastUpdateTimestamp > 0) {
-              loadInitialState();
-            }
+            // The channel will send initial state automatically
+            // This happens in the channel's subscribed method
           },
           
           disconnected() {
@@ -752,6 +750,26 @@
           received(data) {
             console.log("Received data:", data);
             
+            // Handle initial state message (sent when joining)
+            if (data.action === "initial_state") {
+              console.log("Received initial state");
+              state.votes = data.votes || {};
+              state.revealed = data.revealed || false;
+              state.currentTicketData = data.ticket_data || null;
+              state.connectedCount = data.connected_count || 0;
+              state.votedCount = data.voted_count || 0;
+              
+              // Clear processed actions to avoid conflicts
+              processedActions.clear();
+              
+              // Render everything with the initial state
+              renderTicket();
+              renderVotes();
+              updatePresenceBadge();
+              showStatus("Joined session");
+              return;
+            }
+            
             // Generate action ID for deduplication
             const actionId = generateActionId(data.action, data);
             
@@ -764,7 +782,9 @@
             switch(data.action) {
               case "submit":
                 state.votes[data.user_name] = data.points;
+                state.votedCount = Object.keys(state.votes).length;
                 renderVotes();
+                updatePresenceBadge();
                 showStatus(`${data.user_name} voted`);
                 break;
                 
@@ -777,7 +797,9 @@
               case "clear":
                 state.votes = {};
                 state.revealed = false;
+                state.votedCount = 0;
                 renderVotes();
+                updatePresenceBadge();
                 showStatus("Votes cleared!");
                 break;
                 
@@ -881,9 +903,8 @@
           throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        // Don't update local state - wait for broadcast
         document.getElementById("storyPoints").value = "";
-        showStatus("Vote submitted!");
+        // Vote will appear via broadcast
       } catch (error) {
         console.error("Error submitting vote:", error);
         showStatus("Failed to submit vote", true);
@@ -932,6 +953,26 @@
       }
     });
 
+    // Optional: Periodic cleanup every 60 seconds
+    // This helps ensure presence counts stay accurate
+    function startPeriodicCleanup() {
+      setInterval(async () => {
+        if (state.isConnected) {
+          try {
+            await fetch("/estimations/cleanup_presence", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": csrfToken
+              }
+            });
+          } catch (error) {
+            console.log("Cleanup request failed (non-critical):", error);
+          }
+        }
+      }, 60000); // Every 60 seconds
+    }
+
     // Initialize
     async function init() {
       // Load initial state first
@@ -939,6 +980,10 @@
       
       // Then setup WebSocket subscription
       setupSubscription();
+      
+      // Optional: Start periodic cleanup
+      // Comment out if you don't want this extra cleanup
+      startPeriodicCleanup();
     }
 
     // Start the application
