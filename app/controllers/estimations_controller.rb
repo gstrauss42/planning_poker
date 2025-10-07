@@ -125,7 +125,9 @@ class EstimationsController < ApplicationController
   def get_session_state
     state = EstimationSessionStore.get_state
     
-    # Don't include presence counts here - they should only come from ActionCable broadcasts
-    render json: state
+    # Include connected_count in HTTP response (voted_count is calculated client-side from votes)
+    render json: state.merge(
+      connected_count: EstimationSessionStore.connected_count
+    )
   end
 end

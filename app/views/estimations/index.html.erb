@@ -479,7 +479,6 @@
           Object.keys(votes).forEach(key => delete votes[key]);
           Object.assign(votes, state.votes);
           renderVotes();
-          updatePresenceBadge(); // Update badge after loading votes
         }
         
         // Load revealed state
@@ -488,7 +487,12 @@
           renderVotes();
         }
         
-        // Note: connected_count comes ONLY from ActionCable broadcasts
+        // Load connected count from HTTP (will be updated via ActionCable broadcasts too)
+        if (typeof state.connected_count !== 'undefined') {
+          connectedCount = state.connected_count;
+        }
+        
+        updatePresenceBadge(); // Update badge after loading everything
         
         console.log("Initial state applied successfully");
       } catch (error) {
