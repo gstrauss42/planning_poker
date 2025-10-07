@@ -5,7 +5,7 @@ class EstimationChannel < ApplicationCable::Channel
     # Track this connection
     EstimationSessionStore.add_connection(connection_identifier)
     
-    # Broadcast immediately to existing clients
+    # Broadcast to EVERYONE (including this client who is now streaming)
     ActionCable.server.broadcast(
       "estimation_session",
       {
@@ -13,25 +13,13 @@ class EstimationChannel < ApplicationCable::Channel
         connected_count: EstimationSessionStore.connected_count
       }
     )
-    
-    # Broadcast again after 1 second to ensure new client receives it
-    Thread.new do
-      sleep 1
-      ActionCable.server.broadcast(
-        "estimation_session",
-        {
-          action: "presence_update",
-          connected_count: EstimationSessionStore.connected_count
-        }
-      )
-    end
   end
 
   def unsubscribed
     # Remove this connection
     EstimationSessionStore.remove_connection(connection_identifier)
     
-    # Broadcast to ALL clients
+    # Broadcast to everyone still connected
     ActionCable.server.broadcast(
       "estimation_session",
       {

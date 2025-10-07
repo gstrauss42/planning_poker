@@ -527,7 +527,7 @@
           console.log("Connected to estimation channel");
           showStatus("Connected");
           
-          // Fetch initial state immediately (delayed broadcast will update count)
+          // Fetch initial state (votes, ticket data)
           fetchInitialState();
           
           // Start sending heartbeats every 10 seconds
@@ -538,25 +538,19 @@
           this.stopHeartbeat();
         },
         received(data) {
-          console.log("Received data:", data);
+          console.log("Received:", data.action, data);
           
           if (data.action === "submit") {
             updateVote(data.user_name, data.points);
-            showStatus(`${data.user_name} voted`);
           } else if (data.action === "reveal") {
             revealVotes();
-            showStatus("All estimates revealed!");
           } else if (data.action === "clear") {
             clearVotes();
-            showStatus("Votes cleared!");
           } else if (data.action === "set_ticket") {
             updateTicketData(data.ticket_data, data.ticket_title);
-            showStatus("Ticket updated");
           } else if (data.action === "presence_update") {
-            console.log("Presence update received - connected_count:", data.connected_count);
             connectedCount = data.connected_count;
             updatePresenceBadge();
-            console.log("Updated badge - voted/connected:", Object.keys(votes).length, "/", connectedCount);
           }
         },
         startHeartbeat() {
