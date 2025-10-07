@@ -530,6 +530,9 @@
           console.log("Connected to estimation channel");
           showStatus("Connected");
           
+          // Fetch initial state after connection is established
+          fetchInitialState();
+          
           // Start sending heartbeats every 10 seconds
           this.startHeartbeat();
         },
@@ -832,10 +835,9 @@
       }
     });
 
-    // Initial render and load state
+    // Initial render (empty state)
     renderVotes();
     renderTicket();
-    fetchInitialState();
   </script>
 </body>
 </html>
