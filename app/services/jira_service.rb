@@ -1,0 +1,229 @@
+# app/services/jira_service.rb
+class JiraService
+  class JiraError < StandardError; end
+  
+  def initialize
+    @base_url = Rails.application.credentials.dig(:jira, :base_url)
+    @email = Rails.application.credentials.dig(:jira, :email)
+    @api_token = Rails.application.credentials.dig(:jira, :api_token)
+    @project = Rails.application.credentials.dig(:jira, :project)
+    @board_id = Rails.application.credentials.dig(:jira, :board_id)
+    
+    # Optional: Custom field IDs for acceptance criteria and technical writeup
+    @acceptance_criteria_field = Rails.application.credentials.dig(:jira, :acceptance_criteria_field)
+    @technical_writeup_field = Rails.application.credentials.dig(:jira, :technical_writeup_field)
+    
+    validate_credentials!
+  end
+
+  # Accepts either full JIRA URL or just ticket key (e.g., "PROJ-123")
+  def fetch_ticket(input)
+    ticket_key = extract_ticket_key(input)
+    
+    # Optional: Validate ticket belongs to your project
+    if @project.present? && ticket_key.present?
+      project_from_key = ticket_key.split('-').first
+      unless project_from_key.casecmp(@project).zero?
+        raise JiraError, "Ticket #{ticket_key} is not from your project (#{@project})"
+      end
+    end
+    
+    url = "#{@base_url}/rest/api/3/issue/#{ticket_key}"
+    
+    response = HTTParty.get(
+      url,
+      basic_auth: { username: @email, password: @api_token },
+      headers: { 'Content-Type' => 'application/json' }
+    )
+
+    if response.success?
+      parse_ticket_response(response)
+    else
+      handle_error_response(response)
+    end
+  rescue StandardError => e
+    Rails.logger.error("JIRA API Error: #{e.message}")
+    raise JiraError, "Failed to fetch ticket: #{e.message}"
+  end
+
+  private
+
+  def validate_credentials!
+    missing = []
+    missing << "base_url" unless @base_url.present?
+    missing << "email" unless @email.present?
+    missing << "api_token" unless @api_token.present?
+    
+    if missing.any?
+      raise JiraError, "Missing JIRA credentials: #{missing.join(', ')}. Please configure in credentials.yml"
+    end
+    
+    # Project and board_id are optional but recommended
+    Rails.logger.warn("JIRA project not configured") unless @project.present?
+    Rails.logger.warn("JIRA board_id not configured") unless @board_id.present?
+  end
+
+  def extract_ticket_key(input)
+    return nil if input.blank?
+    
+    # If it's a full URL, extract the ticket key
+    if input.match?(/https?:\/\//)
+      # Match patterns like: /browse/PROJ-123 or /issues/PROJ-123
+      match = input.match(/\/(?:browse|issues?)\/([A-Z]+-\d+)/i)
+      match ? match[1] : nil
+    else
+      # Assume it's already a ticket key (e.g., "PROJ-123")
+      input.match?(/^[A-Z]+-\d+$/i) ? input : nil
+    end
+  end
+
+  def parse_ticket_response(response)
+    data = response.parsed_response
+    
+    # Get description (might be in different formats)
+    raw_description = extract_description(data)
+    
+    # Parse sections from description
+    sections = parse_description_sections(raw_description)
+    
+    # Try to get acceptance criteria from custom field if configured
+    acceptance_criteria = if @acceptance_criteria_field.present?
+      field_value = data.dig("fields", @acceptance_criteria_field)
+      extract_field_value(field_value)
+    else
+      sections[:acceptance_criteria]
+    end
+    
+    # Try to get technical writeup from custom field if configured
+    technical_writeup = if @technical_writeup_field.present?
+      field_value = data.dig("fields", @technical_writeup_field)
+      extract_field_value(field_value)
+    else
+      sections[:technical_writeup]
+    end
+    
+    {
+      key: data["key"],
+      summary: data.dig("fields", "summary"),
+      description: sections[:description] || raw_description,
+      acceptance_criteria: acceptance_criteria,
+      technical_writeup: technical_writeup,
+      status: data.dig("fields", "status", "name"),
+      priority: data.dig("fields", "priority", "name"),
+      assignee: data.dig("fields", "assignee", "displayName"),
+      issue_type: data.dig("fields", "issuetype", "name"),
+      formatted_title: "#{data['key']}: #{data.dig('fields', 'summary')}"
+    }
+  rescue StandardError => e
+    Rails.logger.error("Error parsing JIRA response: #{e.message}")
+    raise JiraError, "Failed to parse ticket data"
+  end
+
+  def extract_description(data)
+    description_field = data.dig("fields", "description")
+    extract_field_value(description_field)
+  end
+
+  def extract_field_value(field_value)
+    return nil if field_value.blank?
+    
+    # JIRA API v3 returns fields in Atlassian Document Format (ADF)
+    # which is a JSON structure. We need to convert it to plain text.
+    if field_value.is_a?(Hash)
+      extract_text_from_adf(field_value)
+    else
+      field_value.to_s
+    end
+  end
+
+  def extract_text_from_adf(adf_content)
+    return "" unless adf_content.is_a?(Hash)
+    
+    content = adf_content["content"] || []
+    
+    text_parts = content.map do |node|
+      extract_text_from_node(node)
+    end
+    
+    text_parts.join("\n\n").strip
+  end
+
+  def extract_text_from_node(node)
+    return "" unless node.is_a?(Hash)
+    
+    case node["type"]
+    when "paragraph", "heading"
+      content = node["content"] || []
+      content.map { |n| extract_text_from_node(n) }.join
+    when "text"
+      node["text"] || ""
+    when "bulletList", "orderedList"
+      items = node["content"] || []
+      items.map { |item| "• #{extract_text_from_node(item)}" }.join("\n")
+    when "listItem"
+      content = node["content"] || []
+      content.map { |n| extract_text_from_node(n) }.join
+    when "codeBlock"
+      content = node["content"] || []
+      code = content.map { |n| extract_text_from_node(n) }.join
+      "```\n#{code}\n```"
+    else
+      # Recursively handle nested content
+      content = node["content"] || []
+      content.map { |n| extract_text_from_node(n) }.join
+    end
+  end
+
+  def parse_description_sections(description)
+    return { description: description } if description.blank?
+    
+    sections = {
+      description: "",
+      acceptance_criteria: nil,
+      technical_writeup: nil
+    }
+    
+    # Common section headers (case-insensitive)
+    ac_headers = /(?:^|\n)(?:acceptance criteria|ac|acceptance)\s*:?\s*\n/i
+    tech_headers = /(?:^|\n)(?:technical writeup|technical details|tech writeup|implementation|technical notes)\s*:?\s*\n/i
+    
+    # Split by acceptance criteria
+    if description =~ ac_headers
+      parts = description.split(ac_headers, 2)
+      sections[:description] = parts[0].strip
+      
+      # Now split the rest by technical writeup
+      remaining = parts[1]
+      if remaining =~ tech_headers
+        ac_parts = remaining.split(tech_headers, 2)
+        sections[:acceptance_criteria] = ac_parts[0].strip
+        sections[:technical_writeup] = ac_parts[1].strip if ac_parts[1].present?
+      else
+        sections[:acceptance_criteria] = remaining.strip
+      end
+    elsif description =~ tech_headers
+      # No AC section, but has technical writeup
+      parts = description.split(tech_headers, 2)
+      sections[:description] = parts[0].strip
+      sections[:technical_writeup] = parts[1].strip if parts[1].present?
+    else
+      # No sections found, everything is description
+      sections[:description] = description.strip
+    end
+    
+    sections
+  end
+
+  def handle_error_response(response)
+    case response.code
+    when 401
+      raise JiraError, "Authentication failed. Please check your JIRA credentials."
+    when 404
+      raise JiraError, "Ticket not found. Please check the ticket key or URL."
+    when 403
+      raise JiraError, "Access denied. You don't have permission to view this ticket."
+    else
+      raise JiraError, "JIRA API error (#{response.code}): #{response.message}"
+    end
+  end
+end

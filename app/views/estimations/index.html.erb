@@ -17,7 +17,7 @@
       padding: 20px;
     }
     .container {
-      max-width: 800px;
+      max-width: 1000px;
       margin: 0 auto;
       background: white;
       padding: 40px;
@@ -36,26 +36,117 @@
       padding-bottom: 20px;
       border-bottom: 2px solid #eee;
     }
-    .ticket-display {
-      font-size: 20px;
-      font-weight: 600;
-      color: #2196F3;
-      margin-bottom: 15px;
-      padding: 15px;
-      background: #e3f2fd;
-      border-radius: 6px;
-      min-height: 50px;
-      display: flex;
-      align-items: center;
-    }
-    .ticket-display.empty {
-      color: #999;
-      font-weight: 400;
-      font-style: italic;
-    }
-    .ticket-input-group {
+    .jira-input-group {
       display: flex;
       gap: 10px;
+      margin-bottom: 20px;
+    }
+    .ticket-display {
+      background: #e3f2fd;
+      border-radius: 8px;
+      padding: 20px;
+      margin-top: 15px;
+    }
+    .ticket-display.empty {
+      text-align: center;
+      color: #999;
+      font-style: italic;
+      padding: 40px;
+    }
+    .ticket-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      margin-bottom: 20px;
+      padding-bottom: 15px;
+      border-bottom: 2px solid #2196F3;
+    }
+    .ticket-title {
+      font-size: 24px;
+      font-weight: 600;
+      color: #2196F3;
+      flex: 1;
+    }
+    .ticket-meta {
+      display: flex;
+      gap: 20px;
+      font-size: 14px;
+      color: #666;
+      margin-top: 8px;
+    }
+    .ticket-meta-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .ticket-meta-label {
+      font-weight: 600;
+    }
+    .ticket-content {
+      margin-top: 20px;
+    }
+    .ticket-section-block {
+      margin-bottom: 25px;
+    }
+    .ticket-section-block:last-child {
+      margin-bottom: 0;
+    }
+    .section-header {
+      font-size: 16px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 10px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #ddd;
+    }
+    .section-content {
+      color: #555;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      font-size: 15px;
+    }
+    .collapsible-section {
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .collapsible-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 15px;
+      background: #f9f9f9;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.2s;
+    }
+    .collapsible-header:hover {
+      background: #f0f0f0;
+    }
+    .collapsible-header .section-header {
+      margin: 0;
+      padding: 0;
+      border: none;
+      font-size: 15px;
+    }
+    .collapse-icon {
+      font-size: 18px;
+      color: #666;
+      transition: transform 0.3s;
+    }
+    .collapse-icon.expanded {
+      transform: rotate(180deg);
+    }
+    .collapsible-content {
+      padding: 15px;
+      background: white;
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease-out;
+    }
+    .collapsible-content.expanded {
+      max-height: 2000px;
+      transition: max-height 0.5s ease-in;
     }
     .input-section {
       display: flex;
@@ -121,12 +212,12 @@
     button.clear:hover {
       background: #da190b;
     }
-    button.set-ticket {
-      background: #2196F3;
-      min-width: 120px;
+    button.fetch-jira {
+      background: #0052CC;
+      min-width: 140px;
     }
-    button.set-ticket:hover {
-      background: #0b7dda;
+    button.fetch-jira:hover {
+      background: #0747A6;
     }
     .participants {
       margin-top: 20px;
@@ -184,6 +275,13 @@
     .status-indicator.show {
       opacity: 1;
     }
+    .status-indicator.error {
+      background: #f44336;
+    }
+    .loading {
+      opacity: 0.6;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -193,12 +291,13 @@
     <h1>DataBaes Estimations</h1>
 
     <div class="ticket-section">
-      <div class="ticket-display empty" id="ticketDisplay">
-        <span>No ticket set</span>
+      <div class="jira-input-group">
+        <input type="text" id="jiraTicket" placeholder="Enter JIRA ticket key (e.g., PROJ-123) or URL" />
+        <button id="fetchJiraBtn" class="fetch-jira">Fetch from JIRA</button>
       </div>
-      <div class="ticket-input-group">
-        <input type="text" id="ticketTitle" placeholder="Enter ticket title (e.g., USER-123: Add login feature)" />
-        <button id="setTicketBtn" class="set-ticket">Set Ticket</button>
+      
+      <div class="ticket-display empty" id="ticketDisplay">
+        <span>No ticket loaded - Enter a JIRA ticket to begin</span>
       </div>
     </div>
 
@@ -233,17 +332,24 @@
   <script type="module">
     import { createConsumer } from "@rails/actioncable"
     
-    // Wait for page to load
     const votes = {};
     let revealed = false;
-    let currentTicket = "";
+    let currentTicketData = null;
     const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 
-    function showStatus(message) {
+    function showStatus(message, isError = false) {
       const indicator = document.getElementById("statusIndicator");
       indicator.textContent = message;
       indicator.classList.add("show");
-      setTimeout(() => indicator.classList.remove("show"), 2000);
+      if (isError) {
+        indicator.classList.add("error");
+      } else {
+        indicator.classList.remove("error");
+      }
+      setTimeout(() => {
+        indicator.classList.remove("show");
+        indicator.classList.remove("error");
+      }, 3000);
     }
 
     // Create Action Cable consumer
@@ -264,38 +370,128 @@
           
           if (data.action === "submit") {
             votes[data.user_name] = data.points;
-            render();
+            renderVotes();
             showStatus(`${data.user_name} voted`);
           } else if (data.action === "reveal") {
             revealed = true;
-            render();
+            renderVotes();
             showStatus("All estimates revealed!");
           } else if (data.action === "clear") {
             Object.keys(votes).forEach(key => delete votes[key]);
             revealed = false;
-            render();
+            renderVotes();
             showStatus("Votes cleared!");
           } else if (data.action === "set_ticket") {
-            currentTicket = data.ticket_title;
-            updateTicketDisplay();
+            currentTicketData = data.ticket_data || null;
+            renderTicket();
             showStatus("Ticket updated");
           }
         }
       }
     );
 
-    function updateTicketDisplay() {
-      const display = document.getElementById("ticketDisplay");
-      if (currentTicket) {
-        display.innerHTML = `<span>${currentTicket}</span>`;
-        display.classList.remove("empty");
-      } else {
-        display.innerHTML = '<span>No ticket set</span>';
-        display.classList.add("empty");
-      }
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
     }
 
-    function render() {
+    function renderTicket() {
+      const display = document.getElementById("ticketDisplay");
+      
+      if (!currentTicketData) {
+        display.innerHTML = '<span>No ticket loaded - Enter a JIRA ticket to begin</span>';
+        display.classList.add("empty");
+        return;
+      }
+
+      display.classList.remove("empty");
+      
+      let html = `
+        <div class="ticket-header">
+          <div>
+            <div class="ticket-title">${escapeHtml(currentTicketData.formatted_title || currentTicketData.key)}</div>
+            <div class="ticket-meta">
+              ${currentTicketData.status ? `
+                <div class="ticket-meta-item">
+                  <span class="ticket-meta-label">Status:</span>
+                  <span>${escapeHtml(currentTicketData.status)}</span>
+                </div>
+              ` : ''}
+              ${currentTicketData.priority ? `
+                <div class="ticket-meta-item">
+                  <span class="ticket-meta-label">Priority:</span>
+                  <span>${escapeHtml(currentTicketData.priority)}</span>
+                </div>
+              ` : ''}
+              ${currentTicketData.assignee ? `
+                <div class="ticket-meta-item">
+                  <span class="ticket-meta-label">Assignee:</span>
+                  <span>${escapeHtml(currentTicketData.assignee)}</span>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+        <div class="ticket-content">
+      `;
+
+      // Description Section - only show if not empty
+      if (currentTicketData.description && typeof currentTicketData.description === 'string' && currentTicketData.description.trim()) {
+        html += `
+          <div class="ticket-section-block">
+            <div class="section-header">Description</div>
+            <div class="section-content">${escapeHtml(currentTicketData.description)}</div>
+          </div>
+        `;
+      }
+
+      // Acceptance Criteria Section - only show if not empty
+      if (currentTicketData.acceptance_criteria && typeof currentTicketData.acceptance_criteria === 'string' && currentTicketData.acceptance_criteria.trim()) {
+        html += `
+          <div class="ticket-section-block">
+            <div class="section-header">Acceptance Criteria</div>
+            <div class="section-content">${escapeHtml(currentTicketData.acceptance_criteria)}</div>
+          </div>
+        `;
+      }
+
+      // Technical Writeup - Collapsible - only show if not empty
+      if (currentTicketData.technical_writeup && typeof currentTicketData.technical_writeup === 'string' && currentTicketData.technical_writeup.trim()) {
+        html += `
+          <div class="ticket-section-block">
+            <div class="collapsible-section">
+              <div class="collapsible-header" onclick="toggleTechnicalWriteup()">
+                <div class="section-header">Technical Writeup</div>
+                <span class="collapse-icon" id="techCollapseIcon">▼</span>
+              </div>
+              <div class="collapsible-content" id="technicalWriteupContent">
+                <div class="section-content">${escapeHtml(currentTicketData.technical_writeup)}</div>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      html += '</div>';
+      display.innerHTML = html;
+    }
+
+    // Make toggleTechnicalWriteup global so onclick can access it
+    window.toggleTechnicalWriteup = function() {
+      const content = document.getElementById("technicalWriteupContent");
+      const icon = document.getElementById("techCollapseIcon");
+      
+      if (content.classList.contains("expanded")) {
+        content.classList.remove("expanded");
+        icon.classList.remove("expanded");
+      } else {
+        content.classList.add("expanded");
+        icon.classList.add("expanded");
+      }
+    };
+
+    function renderVotes() {
       const list = document.getElementById("participantsList");
       
       if (Object.keys(votes).length === 0) {
@@ -306,9 +502,9 @@
       list.innerHTML = Object.entries(votes)
         .map(([name, points]) => `
           <div class="participant">
-            <span class="participant-name">${name}</span>
+            <span class="participant-name">${escapeHtml(name)}</span>
             ${revealed ? 
-              `<span class="points">${points}</span>` : 
+              `<span class="points">${escapeHtml(points)}</span>` : 
               `<span class="participant-status">✓ Voted</span>`
             }
           </div>
@@ -316,35 +512,48 @@
         .join('');
     }
 
-    // Set ticket
-    document.getElementById("setTicketBtn").addEventListener("click", async () => {
-      const ticketTitle = document.getElementById("ticketTitle").value.trim();
+    // Fetch from JIRA
+    document.getElementById("fetchJiraBtn").addEventListener("click", async () => {
+      const jiraInput = document.getElementById("jiraTicket").value.trim();
+      const btn = document.getElementById("fetchJiraBtn");
 
-      if (!ticketTitle) {
-        alert("Please enter a ticket title");
+      if (!jiraInput) {
+        alert("Please enter a JIRA ticket key or URL");
         return;
       }
 
+      btn.disabled = true;
+      btn.textContent = "Fetching...";
+      btn.classList.add("loading");
+
       try {
-        const response = await fetch("/estimations/set_ticket", {
+        const response = await fetch("/estimations/fetch_jira_ticket", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "X-CSRF-Token": csrfToken
           },
           body: JSON.stringify({
-            ticket_title: ticketTitle
+            jira_input: jiraInput
           })
         });
 
+        const result = await response.json();
+
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          throw new Error(result.error || `HTTP error! status: ${response.status}`);
         }
 
-        console.log("Ticket set successfully");
+        console.log("JIRA ticket fetched successfully:", result);
+        showStatus("JIRA ticket loaded!");
+        document.getElementById("jiraTicket").value = "";
       } catch (error) {
-        console.error("Error setting ticket:", error);
-        alert("Failed to set ticket. Check console for details.");
+        console.error("Error fetching JIRA ticket:", error);
+        showStatus(error.message, true);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Fetch from JIRA";
+        btn.classList.remove("loading");
       }
     });
 
@@ -428,8 +637,8 @@
     });
 
     // Initial render
-    render();
-    updateTicketDisplay();
+    renderVotes();
+    renderTicket();
   </script>
 </body>
 </html>

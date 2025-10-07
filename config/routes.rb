@@ -10,6 +10,9 @@ Rails.application.routes.draw do
   post "estimations/reveal", to: "estimations#reveal"
   post "estimations/clear", to: "estimations#clear"
   post "estimations/set_ticket", to: "estimations#set_ticket"
+  post "estimations/fetch_jira_ticket", to: "estimations#fetch_jira_ticket"
+  get "estimations/session_state", to: "estimations#get_session_state"
+    
   # Render dynamic PWA files from app/views/pwa/* (remember to link manifest in application.html.erb)
   # get "manifest" => "rails/pwa#manifest", as: :pwa_manifest
   # get "service-worker" => "rails/pwa#service_worker", as: :pwa_service_worker
