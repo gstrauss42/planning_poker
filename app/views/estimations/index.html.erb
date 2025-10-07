@@ -365,45 +365,6 @@
       opacity: 0.6;
       pointer-events: none;
     }
-    .sync-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.5);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 9999;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.3s;
-    }
-    .sync-overlay.show {
-      opacity: 1;
-      pointer-events: all;
-    }
-    .sync-message {
-      background: white;
-      padding: 30px;
-      border-radius: 8px;
-      text-align: center;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-    }
-    .sync-spinner {
-      width: 40px;
-      height: 40px;
-      border: 4px solid #f3f3f3;
-      border-top: 4px solid #4CAF50;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin: 0 auto 20px;
-    }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
   </style>
 </head>
 <body>
@@ -411,13 +372,6 @@
   <div class="connection-status">
     <div class="connection-indicator" id="connectionIndicator"></div>
     <span id="connectionText">Connecting...</span>
-  </div>
-  
-  <div class="sync-overlay" id="syncOverlay">
-    <div class="sync-message">
-      <div class="sync-spinner"></div>
-      <p>Synchronizing session state...</p>
-    </div>
   </div>
   
   <div class="container">
@@ -469,45 +423,23 @@
     import { createConsumer } from "@rails/actioncable"
     
     // State management
-    const state = {
-      votes: {},
-      revealed: false,
-      currentTicketData: null,
-      connectedCount: 0,
-      votedCount: 0,
-      isConnected: false,
-      isSyncing: false,
-      lastUpdateTimestamp: 0
-    };
+    let votes = {};
+    let revealed = false;
+    let currentTicketData = null;
+    let connectedCount = 0;
+    let votedCount = 0;
+    let isConnected = false;
     
     let subscription = null;
     const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
     let reconnectTimer = null;
     let heartbeatInterval = null;
 
-    // Deduplication tracking
-    const processedActions = new Set();
-    const ACTION_EXPIRY = 5000; // 5 seconds
-
-    function generateActionId(action, data) {
-      return `${action}-${data.user_name || ''}-${data.points || ''}-${state.lastUpdateTimestamp}`;
-    }
-
-    function shouldProcessAction(actionId) {
-      if (processedActions.has(actionId)) {
-        return false;
-      }
-      processedActions.add(actionId);
-      // Clean up old action IDs after expiry
-      setTimeout(() => processedActions.delete(actionId), ACTION_EXPIRY);
-      return true;
-    }
-
     function updateConnectionStatus(connected, text = null) {
       const indicator = document.getElementById("connectionIndicator");
       const textEl = document.getElementById("connectionText");
       
-      state.isConnected = connected;
+      isConnected = connected;
       
       if (connected) {
         indicator.classList.add("connected");
@@ -517,15 +449,6 @@
         indicator.classList.remove("connected");
         indicator.classList.add("disconnected");
         textEl.textContent = text || "Disconnected";
-      }
-    }
-
-    function showSyncOverlay(show) {
-      const overlay = document.getElementById("syncOverlay");
-      if (show) {
-        overlay.classList.add("show");
-      } else {
-        overlay.classList.remove("show");
       }
     }
 
@@ -546,9 +469,9 @@
 
     function updatePresenceBadge() {
       const badge = document.getElementById("presenceBadge");
-      badge.textContent = `${state.votedCount}/${state.connectedCount} voted`;
+      badge.textContent = `${votedCount}/${connectedCount} voted`;
       
-      if (state.connectedCount > 0 && state.votedCount === state.connectedCount) {
+      if (connectedCount > 0 && votedCount === connectedCount) {
         badge.classList.add("all-voted");
       } else {
         badge.classList.remove("all-voted");
@@ -561,40 +484,35 @@
       return div.innerHTML;
     }
 
-    // Load initial state from server
-    async function loadInitialState() {
-      showSyncOverlay(true);
-      try {
-        const response = await fetch("/estimations/session_state");
-        if (!response.ok) throw new Error("Failed to load session state");
-        
-        const data = await response.json();
-        
-        // Apply the complete state
-        state.votes = data.votes || {};
-        state.revealed = data.revealed || false;
-        state.currentTicketData = data.ticket_data || null;
-        state.connectedCount = data.connected_count || 0;
-        state.votedCount = data.voted_count || 0;
-        state.lastUpdateTimestamp = data.updated_at || Date.now();
-        
-        // Render everything
-        renderTicket();
-        renderVotes();
-        updatePresenceBadge();
-        
-      } catch (error) {
-        console.error("Error loading initial state:", error);
-        showStatus("Failed to load session state", true);
-      } finally {
-        showSyncOverlay(false);
-      }
+    function updateTicketData(ticketData) {
+      currentTicketData = ticketData;
+      renderTicket();
+    }
+
+    function updateVote(userName, points) {
+      votes[userName] = points;
+      votedCount = Object.keys(votes).length;
+      renderVotes();
+      updatePresenceBadge();
+    }
+
+    function revealVotes() {
+      revealed = true;
+      renderVotes();
+    }
+
+    function clearVotes() {
+      votes = {};
+      revealed = false;
+      votedCount = 0;
+      renderVotes();
+      updatePresenceBadge();
     }
 
     function renderTicket() {
       const display = document.getElementById("ticketDisplay");
       
-      if (!state.currentTicketData) {
+      if (!currentTicketData) {
         display.innerHTML = '<span>No ticket loaded - Enter a JIRA ticket to begin</span>';
         display.classList.add("empty");
         return;
@@ -605,24 +523,24 @@
       let html = `
         <div class="ticket-header">
           <div>
-            <div class="ticket-title">${escapeHtml(state.currentTicketData.formatted_title || state.currentTicketData.key)}</div>
+            <div class="ticket-title">${escapeHtml(currentTicketData.formatted_title || currentTicketData.key)}</div>
             <div class="ticket-meta">
-              ${state.currentTicketData.status ? `
+              ${currentTicketData.status ? `
                 <div class="ticket-meta-item">
                   <span class="ticket-meta-label">Status:</span>
-                  <span>${escapeHtml(state.currentTicketData.status)}</span>
+                  <span>${escapeHtml(currentTicketData.status)}</span>
                 </div>
               ` : ''}
-              ${state.currentTicketData.priority ? `
+              ${currentTicketData.priority ? `
                 <div class="ticket-meta-item">
                   <span class="ticket-meta-label">Priority:</span>
-                  <span>${escapeHtml(state.currentTicketData.priority)}</span>
+                  <span>${escapeHtml(currentTicketData.priority)}</span>
                 </div>
               ` : ''}
-              ${state.currentTicketData.assignee ? `
+              ${currentTicketData.assignee ? `
                 <div class="ticket-meta-item">
                   <span class="ticket-meta-label">Assignee:</span>
-                  <span>${escapeHtml(state.currentTicketData.assignee)}</span>
+                  <span>${escapeHtml(currentTicketData.assignee)}</span>
                 </div>
               ` : ''}
             </div>
@@ -631,25 +549,25 @@
         <div class="ticket-content">
       `;
 
-      if (state.currentTicketData.description && typeof state.currentTicketData.description === 'string' && state.currentTicketData.description.trim()) {
+      if (currentTicketData.description && typeof currentTicketData.description === 'string' && currentTicketData.description.trim()) {
         html += `
           <div class="ticket-section-block">
             <div class="section-header">Description</div>
-            <div class="section-content">${state.currentTicketData.description}</div>
+            <div class="section-content">${currentTicketData.description}</div>
           </div>
         `;
       }
 
-      if (state.currentTicketData.acceptance_criteria && typeof state.currentTicketData.acceptance_criteria === 'string' && state.currentTicketData.acceptance_criteria.trim()) {
+      if (currentTicketData.acceptance_criteria && typeof currentTicketData.acceptance_criteria === 'string' && currentTicketData.acceptance_criteria.trim()) {
         html += `
           <div class="ticket-section-block">
             <div class="section-header">Acceptance Criteria</div>
-            <div class="section-content">${state.currentTicketData.acceptance_criteria}</div>
+            <div class="section-content">${currentTicketData.acceptance_criteria}</div>
           </div>
         `;
       }
 
-      if (state.currentTicketData.technical_writeup && typeof state.currentTicketData.technical_writeup === 'string' && state.currentTicketData.technical_writeup.trim()) {
+      if (currentTicketData.technical_writeup && typeof currentTicketData.technical_writeup === 'string' && currentTicketData.technical_writeup.trim()) {
         html += `
           <div class="ticket-section-block">
             <div class="collapsible-section">
@@ -658,7 +576,7 @@
                 <span class="collapse-icon" id="techCollapseIcon">▼</span>
               </div>
               <div class="collapsible-content" id="technicalWriteupContent">
-                <div class="section-content">${state.currentTicketData.technical_writeup}</div>
+                <div class="section-content">${currentTicketData.technical_writeup}</div>
               </div>
             </div>
           </div>
@@ -685,16 +603,16 @@
     function renderVotes() {
       const list = document.getElementById("participantsList");
       
-      if (Object.keys(state.votes).length === 0) {
+      if (Object.keys(votes).length === 0) {
         list.innerHTML = '<div class="empty-state">No votes yet</div>';
         return;
       }
 
-      list.innerHTML = Object.entries(state.votes)
+      list.innerHTML = Object.entries(votes)
         .map(([name, points]) => `
           <div class="participant">
             <span class="participant-name">${escapeHtml(name)}</span>
-            ${state.revealed ? 
+            ${revealed ? 
               `<span class="points">${escapeHtml(points)}</span>` : 
               `<span class="participant-status">✓ Voted</span>`
             }
@@ -727,9 +645,6 @@
             
             // Start heartbeat
             this.startHeartbeat();
-            
-            // The channel will send initial state automatically
-            // This happens in the channel's subscribed method
           },
           
           disconnected() {
@@ -753,14 +668,11 @@
             // Handle initial state message (sent when joining)
             if (data.action === "initial_state") {
               console.log("Received initial state");
-              state.votes = data.votes || {};
-              state.revealed = data.revealed || false;
-              state.currentTicketData = data.ticket_data || null;
-              state.connectedCount = data.connected_count || 0;
-              state.votedCount = data.voted_count || 0;
-              
-              // Clear processed actions to avoid conflicts
-              processedActions.clear();
+              votes = data.votes || {};
+              revealed = data.revealed || false;
+              currentTicketData = data.ticket_data || null;
+              connectedCount = data.connected_count || 0;
+              votedCount = data.voted_count || 0;
               
               // Render everything with the initial state
               renderTicket();
@@ -770,54 +682,34 @@
               return;
             }
             
-            // Generate action ID for deduplication
-            const actionId = generateActionId(data.action, data);
-            
-            if (!shouldProcessAction(actionId)) {
-              console.log("Skipping duplicate action:", actionId);
-              return;
-            }
-            
             // Update state based on action
             switch(data.action) {
               case "submit":
-                state.votes[data.user_name] = data.points;
-                state.votedCount = Object.keys(state.votes).length;
-                renderVotes();
-                updatePresenceBadge();
+                updateVote(data.user_name, data.points);
                 showStatus(`${data.user_name} voted`);
                 break;
                 
               case "reveal":
-                state.revealed = true;
-                renderVotes();
+                revealVotes();
                 showStatus("All estimates revealed!");
                 break;
                 
               case "clear":
-                state.votes = {};
-                state.revealed = false;
-                state.votedCount = 0;
-                renderVotes();
-                updatePresenceBadge();
+                clearVotes();
                 showStatus("Votes cleared!");
                 break;
                 
               case "set_ticket":
-                state.currentTicketData = data.ticket_data;
-                renderTicket();
+                updateTicketData(data.ticket_data);
                 showStatus("Ticket updated");
                 break;
                 
               case "presence_update":
-                state.connectedCount = data.connected_count;
-                state.votedCount = data.voted_count;
+                connectedCount = data.connected_count;
+                votedCount = data.voted_count;
                 updatePresenceBadge();
                 break;
             }
-            
-            // Update timestamp
-            state.lastUpdateTimestamp = Date.now();
           },
           
           startHeartbeat() {
@@ -867,7 +759,8 @@
           throw new Error(result.error || `HTTP error! status: ${response.status}`);
         }
 
-        // Don't update local state - wait for broadcast
+        // Immediately update local state for the user who fetched it
+        updateTicketData(result.ticket);
         showStatus("JIRA ticket loaded!");
         document.getElementById("jiraTicket").value = "";
       } catch (error) {
@@ -903,8 +796,10 @@
           throw new Error(`HTTP error! status: ${response.status}`);
         }
 
+        // Immediately update local state for the user who voted
+        updateVote(userName, points);
         document.getElementById("storyPoints").value = "";
-        // Vote will appear via broadcast
+        showStatus("Vote submitted!");
       } catch (error) {
         console.error("Error submitting vote:", error);
         showStatus("Failed to submit vote", true);
@@ -924,6 +819,9 @@
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
+
+        // Immediately update local state
+        revealVotes();
       } catch (error) {
         console.error("Error revealing votes:", error);
         showStatus("Failed to reveal votes", true);
@@ -947,43 +845,24 @@
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
+
+        // Immediately update local state
+        clearVotes();
       } catch (error) {
         console.error("Error clearing votes:", error);
         showStatus("Failed to clear votes", true);
       }
     });
 
-    // Optional: Periodic cleanup every 60 seconds
-    // This helps ensure presence counts stay accurate
-    function startPeriodicCleanup() {
-      setInterval(async () => {
-        if (state.isConnected) {
-          try {
-            await fetch("/estimations/cleanup_presence", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "X-CSRF-Token": csrfToken
-              }
-            });
-          } catch (error) {
-            console.log("Cleanup request failed (non-critical):", error);
-          }
-        }
-      }, 60000); // Every 60 seconds
-    }
-
     // Initialize
-    async function init() {
-      // Load initial state first
-      await loadInitialState();
-      
-      // Then setup WebSocket subscription
+    function init() {
+      // Setup WebSocket subscription
       setupSubscription();
       
-      // Optional: Start periodic cleanup
-      // Comment out if you don't want this extra cleanup
-      startPeriodicCleanup();
+      // Initial render with empty state
+      renderTicket();
+      renderVotes();
+      updatePresenceBadge();
     }
 
     // Start the application
