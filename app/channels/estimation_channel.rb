@@ -2,15 +2,29 @@ class EstimationChannel < ApplicationCable::Channel
   def subscribed
     stream_from "estimation_session"
     
+    # Track this connection
+    EstimationSessionStore.add_connection(connection_identifier)
+    
     # Send current session state to the newly connected client
     transmit_current_state
   end
 
   def unsubscribed
-    # Cleanup when channel is unsubscribed
+    # Remove this connection
+    EstimationSessionStore.remove_connection(connection_identifier)
+  end
+
+  def heartbeat
+    # Update this connection's last seen time
+    EstimationSessionStore.heartbeat(connection_identifier)
   end
 
   private
+
+  def connection_identifier
+    # Use a unique identifier for this connection
+    connection.connection_identifier
+  end
 
   def transmit_current_state
     state = EstimationSessionStore.get_state
@@ -41,5 +55,12 @@ class EstimationChannel < ApplicationCable::Channel
         action: "reveal"
       })
     end
+
+    # Send presence count
+    transmit({
+      action: "presence_update",
+      connected_count: EstimationSessionStore.connected_count,
+      voted_count: EstimationSessionStore.voted_count
+    })
   end
 end

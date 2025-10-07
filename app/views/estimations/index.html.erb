@@ -27,9 +27,21 @@
     h1 {
       margin: 0 0 30px 0;
       color: #333;
-      display: flex;
-      align-items: center;
-      gap: 10px;
+    }
+    .presence-badge {
+      font-size: 16px;
+      font-weight: 500;
+      color: #2196F3;
+      background: #e3f2fd;
+      padding: 8px 16px;
+      border-radius: 20px;
+      border: 2px solid #2196F3;
+      transition: all 0.3s ease;
+    }
+    .presence-badge.all-voted {
+      color: #4CAF50;
+      background: #e8f5e9;
+      border-color: #4CAF50;
     }
     .ticket-section {
       margin-bottom: 30px;
@@ -226,6 +238,9 @@
       font-size: 18px;
       color: #666;
       margin-bottom: 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
     .participant {
       display: flex;
@@ -324,7 +339,10 @@
     </div>
 
     <div class="participants">
-      <h2>Participants</h2>
+      <h2>
+        Participants
+        <span class="presence-badge" id="presenceBadge">0/0 voted</span>
+      </h2>
       <div id="participantsList"></div>
     </div>
   </div>
@@ -335,6 +353,9 @@
     const votes = {};
     let revealed = false;
     let currentTicketData = null;
+    let connectedCount = 0;
+    let votedCount = 0;
+    let subscription = null;
     const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 
     function showStatus(message, isError = false) {
@@ -352,18 +373,34 @@
       }, 3000);
     }
 
+    function updatePresenceBadge() {
+      const badge = document.getElementById("presenceBadge");
+      badge.textContent = `${votedCount}/${connectedCount} voted`;
+      
+      // Turn green when everyone has voted
+      if (connectedCount > 0 && votedCount === connectedCount) {
+        badge.classList.add("all-voted");
+      } else {
+        badge.classList.remove("all-voted");
+      }
+    }
+
     // Create Action Cable consumer
     const cable = createConsumer();
       
-    cable.subscriptions.create(
+    subscription = cable.subscriptions.create(
       { channel: "EstimationChannel" },
       {
         connected() {
           console.log("Connected to estimation channel");
           showStatus("Connected");
+          
+          // Start sending heartbeats every 10 seconds
+          this.startHeartbeat();
         },
         disconnected() {
           console.log("Disconnected from estimation channel");
+          this.stopHeartbeat();
         },
         received(data) {
           console.log("Received data:", data);
@@ -385,6 +422,21 @@
             currentTicketData = data.ticket_data || null;
             renderTicket();
             showStatus("Ticket updated");
+          } else if (data.action === "presence_update") {
+            connectedCount = data.connected_count;
+            votedCount = data.voted_count;
+            updatePresenceBadge();
+          }
+        },
+        startHeartbeat() {
+          this.heartbeatInterval = setInterval(() => {
+            this.perform('heartbeat');
+          }, 10000); // Send heartbeat every 10 seconds
+        },
+        stopHeartbeat() {
+          if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
           }
         }
       }

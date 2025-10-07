@@ -1,7 +1,9 @@
 # app/services/estimation_session_store.rb
 class EstimationSessionStore
   SESSION_KEY = "estimation_session_state"
-  EXPIRY = 10.minutes
+  PRESENCE_KEY = "estimation_session_presence"
+  EXPIRY = 30.minutes
+  PRESENCE_EXPIRY = 30.seconds
 
   class << self
     def get_state
@@ -37,6 +39,52 @@ class EstimationSessionStore
 
     def clear_all
       Rails.cache.delete(SESSION_KEY)
+      Rails.cache.delete(PRESENCE_KEY)
+    end
+
+    # Presence tracking
+    def add_connection(connection_id)
+      presence = get_presence
+      presence[connection_id] = Time.current.to_i
+      save_presence(presence)
+      broadcast_presence_count
+    end
+
+    def remove_connection(connection_id)
+      presence = get_presence
+      presence.delete(connection_id)
+      save_presence(presence)
+      broadcast_presence_count
+    end
+
+    def heartbeat(connection_id)
+      presence = get_presence
+      presence[connection_id] = Time.current.to_i
+      save_presence(presence)
+    end
+
+    def get_presence
+      Rails.cache.read(PRESENCE_KEY) || {}
+    end
+
+    def cleanup_stale_connections
+      presence = get_presence
+      current_time = Time.current.to_i
+      
+      presence.reject! do |_id, last_seen|
+        current_time - last_seen > PRESENCE_EXPIRY
+      end
+      
+      save_presence(presence)
+    end
+
+    def connected_count
+      cleanup_stale_connections
+      get_presence.count
+    end
+
+    def voted_count
+      get_state[:votes].count
     end
 
     private
@@ -53,6 +101,22 @@ class EstimationSessionStore
     def save_state(state)
       Rails.cache.write(SESSION_KEY, state, expires_in: EXPIRY)
       state
+    end
+
+    def save_presence(presence)
+      Rails.cache.write(PRESENCE_KEY, presence, expires_in: EXPIRY)
+      presence
+    end
+
+    def broadcast_presence_count
+      ActionCable.server.broadcast(
+        "estimation_session",
+        {
+          action: "presence_update",
+          connected_count: connected_count,
+          voted_count: voted_count
+        }
+      )
     end
   end
 end

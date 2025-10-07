@@ -19,6 +19,16 @@ class EstimationsController < ApplicationController
       }
     )
 
+    # Broadcast updated presence count
+    ActionCable.server.broadcast(
+      "estimation_session",
+      {
+        action: "presence_update",
+        connected_count: EstimationSessionStore.connected_count,
+        voted_count: EstimationSessionStore.voted_count
+      }
+    )
+
     head :ok
   end
 
@@ -43,6 +53,16 @@ class EstimationsController < ApplicationController
     ActionCable.server.broadcast(
       "estimation_session",
       { action: "clear" }
+    )
+
+    # Broadcast updated presence count
+    ActionCable.server.broadcast(
+      "estimation_session",
+      {
+        action: "presence_update",
+        connected_count: EstimationSessionStore.connected_count,
+        voted_count: EstimationSessionStore.voted_count
+      }
     )
 
     head :ok
