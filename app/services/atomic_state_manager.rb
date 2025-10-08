@@ -252,7 +252,8 @@ class AtomicStateManager
     end
 
     def heartbeat(connection_id)
-      atomic_update("heartbeat") do
+      # Heartbeat doesn't need atomic operations - it's just updating presence
+      begin
         presence = get_presence
         if presence[connection_id]
           presence[connection_id][:last_seen] = Time.current.to_i
@@ -265,26 +266,37 @@ class AtomicStateManager
           end
         end
         presence
+      rescue StandardError => e
+        Rails.logger.error "[AtomicState] Heartbeat error: #{e.message}"
+        # Don't raise - heartbeat failures shouldn't break the connection
+        {}
       end
     end
 
     def cleanup_stale_connections
-      presence = get_presence
-      current_time = Time.current.to_i
-      
-      stale_connections = presence.select do |_id, data|
-        current_time - data[:last_seen] > PRESENCE_EXPIRY
-      end
-      
-      if stale_connections.any?
-        stale_connections.each do |id, data|
-          Rails.logger.info "[AtomicState] Cleaning up stale connection: #{id} (user: #{data[:user_name]})"
-          presence.delete(id)
+      # Cleanup doesn't need atomic operations - it's just removing stale data
+      begin
+        presence = get_presence
+        current_time = Time.current.to_i
+        
+        stale_connections = presence.select do |_id, data|
+          current_time - data[:last_seen] > PRESENCE_EXPIRY
         end
-        save_presence(presence)
+        
+        if stale_connections.any?
+          stale_connections.each do |id, data|
+            Rails.logger.info "[AtomicState] Cleaning up stale connection: #{id} (user: #{data[:user_name]})"
+            presence.delete(id)
+          end
+          save_presence(presence)
+        end
+        
+        presence
+      rescue StandardError => e
+        Rails.logger.error "[AtomicState] Cleanup error: #{e.message}"
+        # Don't raise - cleanup failures shouldn't break the system
+        {}
       end
-      
-      presence
     end
 
     def update_user_connection_mapping(user_name)
@@ -301,7 +313,13 @@ class AtomicStateManager
     end
 
     def connected_count
-      cleanup_stale_connections.count
+      # Simple count doesn't need atomic operations
+      begin
+        cleanup_stale_connections.count
+      rescue StandardError => e
+        Rails.logger.error "[AtomicState] Connected count error: #{e.message}"
+        0
+      end
     end
 
     def voted_count
