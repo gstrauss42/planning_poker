@@ -27,6 +27,9 @@ class AtomicStateManager
         ping_result = redis_client.ping
         Rails.logger.info "[AtomicState] Redis ping result: #{ping_result}"
         
+        # Clean up any stale locks on startup
+        cleanup_stale_locks
+        
         redis_client
       rescue StandardError => e
         Rails.logger.error "=" * 80
@@ -82,10 +85,12 @@ class AtomicStateManager
     def atomic_update(operation_name, &block)
       # Always try Redis first, but fail fast to fallback
       if redis_available?
+        lock_acquired = false
         begin
           # Quick lock attempt with timeout
           lock_acquired = acquire_lock(operation_name)
           if lock_acquired
+            Rails.logger.debug "[AtomicState] Lock acquired for #{operation_name}"
             result = block.call
             Rails.logger.info "[AtomicState] #{operation_name} completed with Redis"
             return result
@@ -97,7 +102,11 @@ class AtomicStateManager
           Rails.logger.warn "[AtomicState] Redis error in #{operation_name}: #{e.message}, using fallback"
           return fallback_update(operation_name, &block)
         ensure
-          release_lock(operation_name) if redis_available?
+          # Always release lock if we acquired it
+          if lock_acquired && redis_available?
+            Rails.logger.debug "[AtomicState] Releasing lock for #{operation_name}"
+            release_lock(operation_name)
+          end
         end
       else
         Rails.logger.warn "[AtomicState] Redis unavailable, using fallback for #{operation_name}"
@@ -446,9 +455,41 @@ class AtomicStateManager
       return unless redis_available?
       
       lock_key = "#{LOCK_KEY}:#{operation_name}"
-      redis.del(lock_key)
+      result = redis.del(lock_key)
+      Rails.logger.debug "[AtomicState] Lock release result for #{operation_name}: #{result}"
     rescue StandardError => e
-      Rails.logger.error "[AtomicState] Error releasing lock: #{e.message}"
+      Rails.logger.error "[AtomicState] Error releasing lock for #{operation_name}: #{e.message}"
+      # Try to force release the lock by setting it to expire immediately
+      begin
+        redis.expire(lock_key, 0)
+        Rails.logger.warn "[AtomicState] Force-expired lock for #{operation_name}"
+      rescue StandardError => force_error
+        Rails.logger.error "[AtomicState] Failed to force-expire lock: #{force_error.message}"
+      end
+    end
+
+    def cleanup_stale_locks
+      return unless redis_available?
+      
+      begin
+        # Get all lock keys
+        lock_keys = redis.keys("#{LOCK_KEY}:*")
+        Rails.logger.debug "[AtomicState] Found #{lock_keys.count} lock keys"
+        
+        lock_keys.each do |lock_key|
+          # Check if lock is still valid (not expired)
+          ttl = redis.ttl(lock_key)
+          if ttl == -1
+            # Lock exists but has no expiration - this is a stale lock
+            Rails.logger.warn "[AtomicState] Found stale lock without expiration: #{lock_key}"
+            redis.del(lock_key)
+          elsif ttl > 0
+            Rails.logger.debug "[AtomicState] Lock #{lock_key} expires in #{ttl} seconds"
+          end
+        end
+      rescue StandardError => e
+        Rails.logger.error "[AtomicState] Error cleaning up stale locks: #{e.message}"
+      end
     end
 
     def save_state(state)
