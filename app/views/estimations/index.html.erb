@@ -508,12 +508,22 @@
       console.log(`[Sync] Updating to version ${serverState.version} from ${state.version}, action: ${changeAction}`);
       console.log(`[Sync] Server state:`, serverState);
       
+      // Prevent infinite loops - track sync attempts
+      if (!state.syncAttempts) state.syncAttempts = 0;
+      state.syncAttempts++;
+      
+      if (state.syncAttempts > 5) {
+        console.error(`[Sync] Too many sync attempts (${state.syncAttempts}), stopping to prevent loop`);
+        showStatus("Sync loop detected. Please refresh the page.", true, 10000);
+        return;
+      }
+      
       // Validate server state before applying
       const validationIssues = validateStateIntegrity(serverState);
       if (validationIssues.length > 0) {
         console.error(`[Sync] State validation failed: ${validationIssues.join(', ')}`);
         showStatus("State validation failed. Requesting fresh state...", true);
-        requestStateSync();
+        setTimeout(() => requestStateSync(), 1000); // Add delay to prevent rapid loops
         return;
       }
       
@@ -521,9 +531,12 @@
       if (state.version > 0 && serverState.version < state.version) {
         console.warn(`[Sync] Version regression detected: server ${serverState.version} < client ${state.version}`);
         showStatus("Version conflict detected. Refreshing state...", true);
-        requestStateSync();
+        setTimeout(() => requestStateSync(), 1000); // Add delay to prevent rapid loops
         return;
       }
+      
+      // Reset sync attempts on successful sync
+      state.syncAttempts = 0;
       
       // Store previous state for rollback
       const previousState = { ...state };
@@ -930,7 +943,16 @@
 
     function requestStateSync() {
       if (subscription && state.isConnected) {
+        // Rate limiting: prevent rapid sync requests
+        const now = Date.now();
+        if (state.lastSyncRequest && (now - state.lastSyncRequest) < 2000) {
+          console.log("[StateSync] Rate limited - too soon since last request");
+          return;
+        }
+        state.lastSyncRequest = now;
+        
         try {
+          console.log("[StateSync] Requesting state sync...");
           subscription.perform('request_state_sync');
         } catch (error) {
           console.error(`[StateSync] Error requesting sync: ${error.message}`);
