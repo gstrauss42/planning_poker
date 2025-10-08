@@ -282,8 +282,10 @@ class AtomicStateManager
 
     def clear_all
       atomic_update("clear_all") do
-        redis.del(SESSION_KEY)
-        redis.del(PRESENCE_KEY)
+        with_redis do |conn|
+          conn.del(SESSION_KEY)
+          conn.del(PRESENCE_KEY)
+        end
         default_state
       end
     end
@@ -488,7 +490,7 @@ class AtomicStateManager
       lock_value = "#{Process.pid}:#{Thread.current.object_id}:#{Time.current.to_f}"
       
       # Try to acquire lock with expiration
-      result = redis.set(lock_key, lock_value, nx: true, ex: LOCK_TIMEOUT)
+      result = with_redis { |conn| conn.set(lock_key, lock_value, nx: true, ex: LOCK_TIMEOUT) }
       result == "OK"
     rescue StandardError => e
       Rails.logger.error "[AtomicState] Error acquiring lock: #{e.message}"
@@ -499,13 +501,13 @@ class AtomicStateManager
       return unless redis_available?
       
       lock_key = "#{LOCK_KEY}:#{operation_name}"
-      result = redis.del(lock_key)
+      result = with_redis { |conn| conn.del(lock_key) }
       Rails.logger.debug "[AtomicState] Lock release result for #{operation_name}: #{result}"
     rescue StandardError => e
       Rails.logger.error "[AtomicState] Error releasing lock for #{operation_name}: #{e.message}"
       # Try to force release the lock by setting it to expire immediately
       begin
-        redis.expire(lock_key, 0)
+        with_redis { |conn| conn.expire(lock_key, 0) }
         Rails.logger.warn "[AtomicState] Force-expired lock for #{operation_name}"
       rescue StandardError => force_error
         Rails.logger.error "[AtomicState] Failed to force-expire lock: #{force_error.message}"
@@ -517,16 +519,16 @@ class AtomicStateManager
       
       begin
         # Get all lock keys
-        lock_keys = redis.keys("#{LOCK_KEY}:*")
+        lock_keys = with_redis { |conn| conn.keys("#{LOCK_KEY}:*") }
         Rails.logger.debug "[AtomicState] Found #{lock_keys.count} lock keys"
         
         lock_keys.each do |lock_key|
           # Check if lock is still valid (not expired)
-          ttl = redis.ttl(lock_key)
+          ttl = with_redis { |conn| conn.ttl(lock_key) }
           if ttl == -1
             # Lock exists but has no expiration - this is a stale lock
             Rails.logger.warn "[AtomicState] Found stale lock without expiration: #{lock_key}"
-            redis.del(lock_key)
+            with_redis { |conn| conn.del(lock_key) }
           elsif ttl > 0
             Rails.logger.debug "[AtomicState] Lock #{lock_key} expires in #{ttl} seconds"
           end
@@ -540,7 +542,7 @@ class AtomicStateManager
       begin
         # Log current Redis client count if possible before cleanup
         if redis_available?
-          info = redis.info("clients")
+          info = with_redis { |conn| conn.info("clients") }
           Rails.logger.info "[AtomicState] Redis client info before cleanup: #{info}"
         end
         
@@ -583,7 +585,7 @@ class AtomicStateManager
 
     def save_presence(presence)
       if redis_available?
-        redis.setex(PRESENCE_KEY, SESSION_EXPIRY, presence.to_json)
+        with_redis { |conn| conn.setex(PRESENCE_KEY, SESSION_EXPIRY, presence.to_json) }
       else
         # Fallback to Rails cache
         Rails.cache.write(PRESENCE_KEY, presence, expires_in: SESSION_EXPIRY.seconds)
@@ -597,7 +599,7 @@ class AtomicStateManager
 
     def get_presence
       if redis_available?
-        presence_data = redis.get(PRESENCE_KEY)
+        presence_data = with_redis { |conn| conn.get(PRESENCE_KEY) }
         if presence_data
           JSON.parse(presence_data, symbolize_names: true)
         else
