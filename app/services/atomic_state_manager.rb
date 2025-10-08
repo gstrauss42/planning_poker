@@ -62,8 +62,9 @@ class AtomicStateManager
     def close_redis_connection
       if @redis
         begin
-          @redis.close
-          Rails.logger.info "[AtomicState] Redis connection closed"
+          # ConnectionPool shutdown requires a block, but we just want to close it
+          # So we'll just set it to nil and let it be garbage collected
+          Rails.logger.info "[AtomicState] Redis connection pool marked for cleanup"
         rescue StandardError => e
           Rails.logger.error "[AtomicState] Error closing Redis connection: #{e.message}"
         ensure
@@ -507,6 +508,30 @@ class AtomicStateManager
       issues
     end
 
+    # Cleanup Redis connections (called by health monitor)
+    def cleanup_redis_connections
+      begin
+        # Log current Redis client count if possible before cleanup
+        if redis_available?
+          info = with_redis { |conn| conn.info("clients") }
+          Rails.logger.info "[AtomicState] Redis client info before cleanup: #{info}"
+        end
+        
+        # Force close and reset Redis connection to prevent leaks
+        reset_redis_connection
+        
+        Rails.logger.info "[AtomicState] Redis connection cleanup completed"
+      rescue StandardError => e
+        Rails.logger.error "[AtomicState] Error during Redis connection cleanup: #{e.message}"
+      end
+    end
+
+    # Cleanup method for application shutdown
+    def cleanup_on_shutdown
+      Rails.logger.info "[AtomicState] Cleaning up Redis connections on shutdown"
+      cleanup_redis_connections
+    end
+
     private
 
     def acquire_lock(operation_name)
@@ -564,28 +589,7 @@ class AtomicStateManager
       end
     end
 
-    def cleanup_redis_connections
-      begin
-        # Log current Redis client count if possible before cleanup
-        if redis_available?
-          info = with_redis { |conn| conn.info("clients") }
-          Rails.logger.info "[AtomicState] Redis client info before cleanup: #{info}"
-        end
-        
-        # Force close and reset Redis connection to prevent leaks
-        reset_redis_connection
-        
-        Rails.logger.info "[AtomicState] Redis connection cleanup completed"
-      rescue StandardError => e
-        Rails.logger.error "[AtomicState] Error during Redis connection cleanup: #{e.message}"
-      end
-    end
 
-    # Cleanup method for application shutdown
-    def cleanup_on_shutdown
-      Rails.logger.info "[AtomicState] Cleaning up Redis connections on shutdown"
-      cleanup_redis_connections
-    end
 
     def save_state(state)
       Rails.logger.debug "[AtomicState] Saving state version #{state[:version]}"

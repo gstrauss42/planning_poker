@@ -273,6 +273,44 @@
       padding: 40px;
       color: #999;
     }
+    .vote-distribution {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 6px;
+      border: 1px solid #e9ecef;
+    }
+    .distribution-header {
+      font-size: 14px;
+      font-weight: 600;
+      color: #495057;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+    .distribution-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+    }
+    .distribution-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 12px;
+      background: white;
+      border-radius: 16px;
+      border: 1px solid #dee2e6;
+      font-size: 13px;
+    }
+    .distribution-value {
+      font-weight: 600;
+      color: #2196F3;
+    }
+    .distribution-count {
+      color: #6c757d;
+      font-size: 12px;
+    }
     .status-indicator {
       position: fixed;
       top: 20px;
@@ -766,7 +804,7 @@
         return;
       }
 
-      list.innerHTML = Object.entries(state.votes)
+      let html = Object.entries(state.votes)
         .map(([name, points]) => `
           <div class="participant">
             <span class="participant-name">${escapeHtml(name)}</span>
@@ -777,6 +815,50 @@
           </div>
         `)
         .join('');
+
+      // Add vote distribution summary when votes are revealed
+      if (state.revealed) {
+        const voteDistribution = getVoteDistribution();
+        if (voteDistribution.length > 0) {
+          html += `
+            <div class="vote-distribution">
+              <div class="distribution-header">Vote Distribution</div>
+              <div class="distribution-items">
+                ${voteDistribution.map(({value, count}) => `
+                  <div class="distribution-item">
+                    <span class="distribution-value">${escapeHtml(value)}</span>
+                    <span class="distribution-count">${count}</span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      list.innerHTML = html;
+    }
+
+    function getVoteDistribution() {
+      if (!state.votes || Object.keys(state.votes).length === 0) {
+        return [];
+      }
+
+      // Count votes by value
+      const voteCounts = {};
+      Object.values(state.votes).forEach(points => {
+        voteCounts[points] = (voteCounts[points] || 0) + 1;
+      });
+
+      // Convert to array and sort by vote value (numeric first, then ?)
+      return Object.entries(voteCounts)
+        .map(([value, count]) => ({ value, count }))
+        .sort((a, b) => {
+          // Sort ? last, otherwise sort numerically
+          if (a.value === '?') return 1;
+          if (b.value === '?') return -1;
+          return parseInt(a.value) - parseInt(b.value);
+        });
     }
 
     function renderAll() {
