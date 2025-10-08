@@ -160,6 +160,9 @@ class AtomicStateManager
         new_state[:version] = current_state[:version] + 1
         new_state[:last_updated] = Time.current.to_i
         
+        # Update presence to track which connection this user belongs to
+        update_user_connection_mapping(user_name)
+        
         save_state(new_state)
         broadcast_state_change("vote_added", new_state)
         new_state
@@ -228,7 +231,8 @@ class AtomicStateManager
         presence[connection_id] = {
           last_seen: Time.current.to_i,
           connected_at: Time.current.to_i,
-          heartbeat_count: 0
+          heartbeat_count: 0,
+          user_name: nil  # Will be set when user votes
         }
         save_presence(presence)
         cleanup_stale_connections
@@ -273,14 +277,27 @@ class AtomicStateManager
       end
       
       if stale_connections.any?
-        stale_connections.each do |id, _data|
+        stale_connections.each do |id, data|
+          Rails.logger.info "[AtomicState] Cleaning up stale connection: #{id} (user: #{data[:user_name]})"
           presence.delete(id)
-          Rails.logger.info "[AtomicState] Cleaned up stale connection: #{id}"
         end
         save_presence(presence)
       end
       
       presence
+    end
+
+    def update_user_connection_mapping(user_name)
+      # Find the most recent connection (assuming it's the current user)
+      presence = get_presence
+      most_recent_connection = presence.max_by { |_id, data| data[:last_seen] }
+      
+      if most_recent_connection
+        connection_id, data = most_recent_connection
+        data[:user_name] = user_name
+        save_presence(presence)
+        Rails.logger.info "[AtomicState] Mapped user '#{user_name}' to connection #{connection_id}"
+      end
     end
 
     def connected_count
@@ -295,17 +312,35 @@ class AtomicStateManager
       state = get_state
       presence = get_presence
       
+      # Clean up stale connections first
+      cleaned_presence = cleanup_stale_connections
+      
+      # Get user names from currently connected users
+      connected_user_names = cleaned_presence.values.map { |data| data[:user_name] }.compact
+      
+      # Only count votes from currently connected users
+      current_votes = state[:votes].select { |user_name, _| connected_user_names.include?(user_name) }
+      
+      # Update state if we removed any votes from disconnected users
+      if current_votes.count != state[:votes].count
+        Rails.logger.info "[AtomicState] Cleaned up votes from disconnected users: #{state[:votes].count} -> #{current_votes.count}"
+        state[:votes] = current_votes
+        state[:version] = state[:version] + 1
+        state[:last_updated] = Time.current.to_i
+        save_state(state)
+      end
+      
       {
         ticket_data: state[:ticket_data],
         ticket_title: state[:ticket_title],
         ticket_id: state[:ticket_id],
         votes: state[:votes],
         revealed: state[:revealed],
-        connected_count: presence.count,
+        connected_count: cleaned_presence.count,
         voted_count: state[:votes].count,
         version: state[:version],
         last_updated: state[:last_updated],
-        session_health: calculate_session_health(state, presence)
+        session_health: calculate_session_health(state, cleaned_presence)
       }
     end
 

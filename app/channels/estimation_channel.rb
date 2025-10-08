@@ -34,8 +34,11 @@ class EstimationChannel < ApplicationCable::Channel
       # Remove connection atomically
       AtomicStateManager.remove_connection(connection.connection_identifier)
       
-      # Broadcast updated presence
+      # Force cleanup and broadcast updated presence
+      AtomicStateManager.cleanup_stale_connections
       broadcast_presence
+      
+      Rails.logger.info "[Channel] Connection cleanup completed for: #{connection.connection_identifier}"
       
     rescue AtomicStateManager::StateError => e
       Rails.logger.error "[Channel] State error during unsubscription: #{e.message}"

@@ -215,11 +215,76 @@ class JiraService
     when "rule"
       "<hr>"
       
+    when "media"
+      # Handle JIRA images and media
+      extract_media_html(node)
+      
+    when "mediaGroup"
+      # Handle groups of media (like image galleries)
+      content = node["content"] || []
+      media_html = content.map { |n| extract_html_from_node(n) }.join
+      "<div class='media-group'>#{media_html}</div>"
+      
+    when "mediaSingle"
+      # Handle single media items
+      content = node["content"] || []
+      media_html = content.map { |n| extract_html_from_node(n) }.join
+      "<div class='media-single'>#{media_html}</div>"
+      
     else
       # Recursively handle nested content for unknown types
       content = node["content"] || []
       content.map { |n| extract_html_from_node(n) }.join
     end
+  end
+
+  def extract_media_html(node)
+    attrs = node["attrs"] || {}
+    media_type = attrs["type"]
+    media_id = attrs["id"]
+    
+    case media_type
+    when "file"
+      # Handle file attachments
+      file_name = attrs["collection"] || "attachment"
+      file_url = "#{@base_url}/secure/attachment/#{media_id}/#{file_name}"
+      
+      # Check if it's an image by file extension
+      if image_file?(file_name)
+        alt_text = attrs["alt"] || "JIRA Image"
+        "<div class='jira-image-container'><img src='#{file_url}' alt='#{alt_text}' class='jira-image' loading='lazy' /></div>"
+      else
+        # Non-image file
+        "<div class='jira-attachment'><a href='#{file_url}' target='_blank' class='attachment-link'>📎 #{file_name}</a></div>"
+      end
+      
+    when "external"
+      # Handle external media URLs
+      url = attrs["url"]
+      if url && image_url?(url)
+        alt_text = attrs["alt"] || "External Image"
+        "<div class='jira-image-container'><img src='#{url}' alt='#{alt_text}' class='jira-image' loading='lazy' /></div>"
+      else
+        "<div class='jira-external-media'><a href='#{url}' target='_blank'>🔗 External Media</a></div>"
+      end
+      
+    else
+      # Fallback for unknown media types
+      "<div class='jira-media-unknown'>[Media: #{media_type}]</div>"
+    end
+  rescue StandardError => e
+    Rails.logger.error "Error extracting media HTML: #{e.message}"
+    "<div class='jira-media-error'>[Error loading media]</div>"
+  end
+
+  def image_file?(filename)
+    return false if filename.blank?
+    filename.downcase.match?(/\.(jpg|jpeg|png|gif|webp|svg|bmp)$/)
+  end
+
+  def image_url?(url)
+    return false if url.blank?
+    url.downcase.match?(/\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?|$)/)
   end
 
   def parse_description_sections(description)
