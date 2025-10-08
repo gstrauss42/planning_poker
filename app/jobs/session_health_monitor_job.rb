@@ -6,6 +6,9 @@ class SessionHealthMonitorJob < ApplicationJob
     Rails.logger.info "[SessionHealthMonitorJob] Starting periodic health check"
     
     begin
+      # Clean up Redis connections to prevent leaks
+      AtomicStateManager.cleanup_redis_connections
+      
       health_report = SessionMonitor.monitor_session_health
       
       # Log health status

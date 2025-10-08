@@ -30,10 +30,17 @@ class JiraService
     
     url = "#{@base_url}/rest/api/3/issue/#{ticket_key}"
     
+    # Include attachments and other fields we need
+    params = {
+      fields: "summary,description,status,priority,assignee,issuetype,attachment",
+      expand: "renderedFields"
+    }
+    
     response = HTTParty.get(
       url,
       basic_auth: { username: @email, password: @api_token },
-      headers: { 'Content-Type' => 'application/json' }
+      headers: { 'Content-Type' => 'application/json' },
+      query: params
     )
 
     if response.success?
@@ -102,12 +109,18 @@ class JiraService
       sections[:technical_writeup]
     end
     
+    # Get attachments
+    attachments = extract_attachments(data)
+    
+    Rails.logger.debug "[JiraService] Found #{attachments.count} attachments for ticket #{data['key']}"
+    
     {
       key: data["key"],
       summary: data.dig("fields", "summary"),
       description: sections[:description] || raw_description,
       acceptance_criteria: acceptance_criteria,
       technical_writeup: technical_writeup,
+      attachments: attachments,
       status: data.dig("fields", "status", "name"),
       priority: data.dig("fields", "priority", "name"),
       assignee: data.dig("fields", "assignee", "displayName"),
@@ -122,6 +135,25 @@ class JiraService
   def extract_description(data)
     description_field = data.dig("fields", "description")
     extract_field_value(description_field)
+  end
+
+  def extract_attachments(data)
+    attachments = data.dig("fields", "attachment") || []
+    
+    attachments.map do |attachment|
+      {
+        id: attachment["id"],
+        filename: attachment["filename"],
+        mime_type: attachment["mimeType"],
+        size: attachment["size"],
+        url: attachment["content"],
+        thumbnail: attachment.dig("thumbnail"),
+        is_image: image_file?(attachment["filename"])
+      }
+    end
+  rescue StandardError => e
+    Rails.logger.error "Error extracting attachments: #{e.message}"
+    []
   end
 
   def extract_field_value(field_value)

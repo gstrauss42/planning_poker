@@ -37,7 +37,27 @@ class SessionMonitor
     def check_redis_health
       begin
         AtomicStateManager.redis.ping
-        { status: "healthy", latency: measure_redis_latency }
+        latency = measure_redis_latency
+        
+        # Get Redis client count
+        client_count = nil
+        begin
+          info = AtomicStateManager.redis.info("clients")
+          client_count = info["connected_clients"].to_i
+        rescue StandardError => e
+          Rails.logger.warn "[SessionMonitor] Could not get Redis client count: #{e.message}"
+        end
+        
+        # Log warning if approaching connection limit
+        if client_count && client_count > 40
+          Rails.logger.warn "[SessionMonitor] Redis connection count high: #{client_count}/50"
+        end
+        
+        { 
+          status: "healthy", 
+          latency: latency,
+          client_count: client_count
+        }
       rescue StandardError => e
         Rails.logger.error "[SessionMonitor] Redis health check failed: #{e.message}"
         { status: "unhealthy", error: e.message }
@@ -160,6 +180,13 @@ class SessionMonitor
         health_score -= 50
       elsif redis_status[:latency] > 100 # > 100ms
         health_score -= 20
+      end
+      
+      # Deduct for high Redis connection count
+      if redis_status[:client_count] && redis_status[:client_count] > 40
+        health_score -= 15 # Near connection limit
+      elsif redis_status[:client_count] && redis_status[:client_count] > 30
+        health_score -= 5 # Getting high
       end
       
       # Deduct for state issues
