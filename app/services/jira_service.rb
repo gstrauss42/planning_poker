@@ -160,6 +160,7 @@ class JiraService
         mime_type: attachment["mimeType"],
         size: attachment["size"],
         url: content_url,
+        proxy_url: "/jira_images/#{attachment["id"]}",  # Proxy URL for authenticated access
         thumbnail: attachment.dig("thumbnail"),
         is_image: image_file?(attachment["filename"])
       }

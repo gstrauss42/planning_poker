@@ -754,7 +754,7 @@
           imageAttachments.forEach(attachment => {
             html += `
               <div class="jira-image-container">
-                <img src="${attachment.url}" 
+                <img src="${attachment.proxy_url}" 
                      alt="${escapeHtml(attachment.filename)}" 
                      class="jira-image" 
                      loading="lazy"

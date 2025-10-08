@@ -183,24 +183,51 @@ class EstimationsController < ApplicationController
     end
   end
 
-  def health_check
+  def proxy_jira_image
+    attachment_id = params[:attachment_id]
+    
+    if attachment_id.blank?
+      render json: { error: "Attachment ID is required" }, status: :bad_request
+      return
+    end
+
     begin
-      issues = AtomicStateManager.validate_state_integrity
-      state = AtomicStateManager.get_broadcast_state
+      # Get JIRA credentials from Rails credentials
+      jira_email = Rails.application.credentials.jira&.email
+      jira_api_token = Rails.application.credentials.jira&.api_token
+      jira_base_url = Rails.application.credentials.jira&.base_url
       
-      render json: {
-        status: issues.any? ? "degraded" : "healthy",
-        issues: issues,
-        session_health: state[:session_health],
-        timestamp: Time.current.to_i
-      }
+      if jira_email.blank? || jira_api_token.blank? || jira_base_url.blank?
+        Rails.logger.error "[Controller] JIRA credentials not configured"
+        render json: { error: "JIRA credentials not configured" }, status: :internal_server_error
+        return
+      end
+
+      # Fetch image from JIRA with authentication
+      image_url = "#{jira_base_url}/rest/api/3/attachment/content/#{attachment_id}"
+      
+      Rails.logger.debug "[Controller] Proxying JIRA image: #{image_url}"
+      
+      response = HTTParty.get(
+        image_url,
+        basic_auth: { username: jira_email, password: jira_api_token },
+        headers: { 'Accept' => 'image/*' },
+        timeout: 30
+      )
+      
+      if response.success?
+        # Return image to client with proper headers
+        send_data response.body, 
+                  type: response.headers['content-type'] || 'image/png', 
+                  disposition: 'inline',
+                  filename: "attachment_#{attachment_id}"
+      else
+        Rails.logger.error "[Controller] Failed to fetch JIRA image: #{response.code} - #{response.message}"
+        render json: { error: "Failed to fetch image from JIRA" }, status: :unprocessable_entity
+      end
+      
     rescue StandardError => e
-      Rails.logger.error "[Controller] Error during health check: #{e.message}"
-      render json: { 
-        status: "error",
-        error: "Health check failed",
-        timestamp: Time.current.to_i
-      }, status: :internal_server_error
+      Rails.logger.error "[Controller] Error proxying JIRA image: #{e.message}"
+      render json: { error: "Failed to proxy image" }, status: :internal_server_error
     end
   end
-end
