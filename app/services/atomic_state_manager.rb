@@ -19,9 +19,7 @@ class AtomicStateManager
         redis_client = Redis.new(
           url: redis_url, 
           timeout: 2, 
-          reconnect_attempts: 2,
-          reconnect_delay: 0.5,
-          reconnect_delay_max: 2.0
+          reconnect_attempts: 2
         )
         
         # Test connection immediately
