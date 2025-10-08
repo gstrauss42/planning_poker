@@ -66,6 +66,43 @@ class EstimationChannel < ApplicationCable::Channel
 
   def request_state_sync
     begin
+      # Server-side rate limiting to prevent loops
+      client_id = connection.connection_identifier
+      now = Time.current.to_i
+      
+      # Check if this client has requested sync too recently
+      last_sync_key = "last_sync_#{client_id}"
+      last_sync = Rails.cache.read(last_sync_key)
+      
+      if last_sync && (now - last_sync) < 2
+        Rails.logger.warn "[Channel] Rate limiting sync request from #{client_id} - too soon since last request"
+        return
+      end
+      
+      # Circuit breaker: track consecutive rapid requests
+      rapid_requests_key = "rapid_requests_#{client_id}"
+      rapid_requests = Rails.cache.read(rapid_requests_key) || 0
+      
+      if rapid_requests > 10
+        Rails.logger.error "[Channel] Circuit breaker triggered for #{client_id} - too many rapid requests (#{rapid_requests})"
+        transmit_error("Too many sync requests. Please refresh the page.")
+        return
+      end
+      
+      # Increment rapid request counter if this is a rapid request
+      if last_sync && (now - last_sync) < 5
+        rapid_requests += 1
+        Rails.cache.write(rapid_requests_key, rapid_requests, expires_in: 30.seconds)
+      else
+        # Reset counter if enough time has passed
+        Rails.cache.delete(rapid_requests_key)
+        rapid_requests = 0
+      end
+      
+      # Store this sync request time
+      Rails.cache.write(last_sync_key, now, expires_in: 10.seconds)
+      
+      Rails.logger.info "[Channel] Processing state sync request from #{client_id} (rapid_requests: #{rapid_requests})"
       send_state_with_retry
     rescue StandardError => e
       Rails.logger.error "[Channel] Error during state sync request: #{e.message}"
