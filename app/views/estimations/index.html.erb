@@ -164,7 +164,7 @@
       transition: max-height 0.3s ease-out;
     }
     .collapsible-content.expanded {
-      max-height: 2000px;
+      max-height: 100%;
     }
     .input-section {
       display: flex;
@@ -525,6 +525,9 @@
 
       display.classList.remove("empty");
       
+      // Preserve technical writeup dropdown state
+      const techWriteupExpanded = document.getElementById("technicalWriteupContent")?.classList.contains("expanded");
+      
       let html = `
         <div class="ticket-header">
           <div>
@@ -573,14 +576,17 @@
       }
 
       if (state.ticketData.technical_writeup && state.ticketData.technical_writeup.trim()) {
+        const expandedClass = techWriteupExpanded ? "expanded" : "";
+        const iconClass = techWriteupExpanded ? "expanded" : "";
+        
         html += `
           <div class="ticket-section-block">
             <div class="collapsible-section">
               <div class="collapsible-header" onclick="toggleTechnicalWriteup()">
                 <div class="section-header">Technical Writeup</div>
-                <span class="collapse-icon" id="techCollapseIcon">▼</span>
+                <span class="collapse-icon ${iconClass}" id="techCollapseIcon">▼</span>
               </div>
-              <div class="collapsible-content" id="technicalWriteupContent">
+              <div class="collapsible-content ${expandedClass}" id="technicalWriteupContent">
                 <div class="section-content">${state.ticketData.technical_writeup}</div>
               </div>
             </div>
