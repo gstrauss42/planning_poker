@@ -203,32 +203,35 @@ class EstimationsController < ApplicationController
         return
       end
 
-      # Fetch image from JIRA with authentication
+      # Fetch image from JIRA with proper headers and authentication
       image_url = "#{jira_base_url}/rest/api/3/attachment/content/#{attachment_id}"
       
       Rails.logger.debug "[Controller] Proxying JIRA image: #{image_url}"
       
       response = HTTParty.get(
         image_url,
-        basic_auth: { username: jira_email, password: jira_api_token },
-        headers: { 'Accept' => 'image/*' },
-        timeout: 30
+        headers: {
+          'Authorization' => "Basic #{Base64.strict_encode64("#{jira_email}:#{jira_api_token}")}",
+          'Accept' => '*/*',  # Accept any content type
+          'User-Agent' => 'PlanningPoker/1.0'
+        },
+        follow_redirects: true,  # Important! Jira often redirects to CDN URLs
+        timeout: 10
       )
       
       if response.success?
         # Return image to client with proper headers
         send_data response.body, 
                   type: response.headers['content-type'] || 'image/png', 
-                  disposition: 'inline',
-                  filename: "attachment_#{attachment_id}"
+                  disposition: 'inline'
       else
         Rails.logger.error "[Controller] Failed to fetch JIRA image: #{response.code} - #{response.message}"
-        render json: { error: "Failed to fetch image from JIRA" }, status: :unprocessable_entity
+        head :unprocessable_entity
       end
       
     rescue StandardError => e
       Rails.logger.error "[Controller] Error proxying JIRA image: #{e.message}"
-      render json: { error: "Failed to proxy image" }, status: :internal_server_error
+      head :internal_server_error
     end
   end
 end
