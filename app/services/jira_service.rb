@@ -329,29 +329,27 @@ class JiraService
     }
     
     # Common section headers (case-insensitive)
-    # Look for headers in HTML or plain text
-    ac_pattern = /<h[1-6]>.*?(acceptance criteria|ac|acceptance).*?<\/h[1-6]>|(?:^|\n)(?:acceptance criteria|ac|acceptance)\s*:?\s*\n/i
-    tech_pattern = /<h[1-6]>.*?(technical writeup|technical details|tech writeup|implementation|technical notes).*?<\/h[1-6]>|(?:^|\n)(?:technical writeup|technical details|tech writeup|implementation|technical notes)\s*:?\s*\n/i
+    # Look for both HTML headers and markdown headers
+    ac_pattern = /(?:<h[1-6]>.*?(?:acceptance criteria|ac|acceptance).*?<\/h[1-6]>|^##\s*(?:acceptance criteria|ac|acceptance))\s*\n?(.*?)(?=<h[1-6]>|^##|$)/mi
+    tech_pattern = /(?:<h[1-6]>.*?(?:technical writeup|technical details|tech writeup|implementation|technical notes).*?<\/h[1-6]>|^##\s*(?:technical writeup|technical details|tech writeup|implementation|technical notes))\s*\n?(.*?)(?=<h[1-6]>|^##|$)/mi
     
-    # Split by acceptance criteria
+    # Extract sections using regex matches with captured groups
     if description =~ ac_pattern
-      parts = description.split(ac_pattern, 2)
-      sections[:description] = parts[0].strip
+      match = description.match(ac_pattern)
+      sections[:description] = description[0...match.begin(0)].strip
+      sections[:acceptance_criteria] = match[1].strip if match[1].present?
       
-      # Now split the rest by technical writeup
-      remaining = parts[-1] # Get last part after split
+      # Check for technical writeup after acceptance criteria
+      remaining = description[match.end(0)..-1]
       if remaining =~ tech_pattern
-        ac_parts = remaining.split(tech_pattern, 2)
-        sections[:acceptance_criteria] = ac_parts[0].strip
-        sections[:technical_writeup] = ac_parts[-1].strip if ac_parts[-1].present?
-      else
-        sections[:acceptance_criteria] = remaining.strip
+        tech_match = remaining.match(tech_pattern)
+        sections[:technical_writeup] = tech_match[1].strip if tech_match[1].present?
       end
     elsif description =~ tech_pattern
       # No AC section, but has technical writeup
-      parts = description.split(tech_pattern, 2)
-      sections[:description] = parts[0].strip
-      sections[:technical_writeup] = parts[-1].strip if parts[-1].present?
+      match = description.match(tech_pattern)
+      sections[:description] = description[0...match.begin(0)].strip
+      sections[:technical_writeup] = match[1].strip if match[1].present?
     else
       # No sections found, everything is description
       sections[:description] = description.strip
