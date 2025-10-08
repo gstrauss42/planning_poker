@@ -30,23 +30,10 @@ class JiraService
     
     url = "#{@base_url}/rest/api/3/issue/#{ticket_key}"
     
-    # Include attachments and other fields we need
-    fields_list = ["summary", "description", "status", "priority", "assignee", "issuetype", "attachment"]
-    
-    # Add custom fields if configured
-    fields_list << @acceptance_criteria_field if @acceptance_criteria_field.present?
-    fields_list << @technical_writeup_field if @technical_writeup_field.present?
-    
-    params = {
-      fields: fields_list.join(","),
-      expand: "renderedFields"
-    }
-    
     response = HTTParty.get(
       url,
       basic_auth: { username: @email, password: @api_token },
-      headers: { 'Content-Type' => 'application/json' },
-      query: params
+      headers: { 'Content-Type' => 'application/json' }
     )
 
     if response.success?
@@ -99,38 +86,12 @@ class JiraService
     # Parse sections from description
     sections = parse_description_sections(raw_description)
     
-    # Try to get acceptance criteria from custom field if configured
-    acceptance_criteria = if @acceptance_criteria_field.present?
-      field_value = data.dig("fields", @acceptance_criteria_field)
-      Rails.logger.debug "[JiraService] Acceptance criteria field '#{@acceptance_criteria_field}' value: #{field_value.inspect}"
-      extract_field_value(field_value)
-    else
-      Rails.logger.debug "[JiraService] No acceptance criteria field configured, using parsed sections"
-      sections[:acceptance_criteria]
-    end
-    
-    # Try to get technical writeup from custom field if configured
-    technical_writeup = if @technical_writeup_field.present?
-      field_value = data.dig("fields", @technical_writeup_field)
-      Rails.logger.debug "[JiraService] Technical writeup field '#{@technical_writeup_field}' value: #{field_value.inspect}"
-      extract_field_value(field_value)
-    else
-      Rails.logger.debug "[JiraService] No technical writeup field configured, using parsed sections"
-      sections[:technical_writeup]
-    end
-    
-    # Get attachments
-    attachments = extract_attachments(data)
-    
-    Rails.logger.debug "[JiraService] Found #{attachments.count} attachments for ticket #{data['key']}"
-    
     {
       key: data["key"],
       summary: data.dig("fields", "summary"),
       description: sections[:description] || raw_description,
-      acceptance_criteria: acceptance_criteria,
-      technical_writeup: technical_writeup,
-      attachments: attachments,
+      acceptance_criteria: sections[:acceptance_criteria],
+      technical_writeup: sections[:technical_writeup],
       status: data.dig("fields", "status", "name"),
       priority: data.dig("fields", "priority", "name"),
       assignee: data.dig("fields", "assignee", "displayName"),
@@ -339,27 +300,29 @@ class JiraService
     }
     
     # Common section headers (case-insensitive)
-    # Look for both HTML headers and markdown headers
-    ac_pattern = /(?:<h[1-6]>.*?(?:acceptance criteria|ac|acceptance).*?<\/h[1-6]>|^##\s*(?:acceptance criteria|ac|acceptance))\s*\n?(.*?)(?=<h[1-6]>|^##|$)/mi
-    tech_pattern = /(?:<h[1-6]>.*?(?:technical writeup|technical details|tech writeup|implementation|technical notes).*?<\/h[1-6]>|^##\s*(?:technical writeup|technical details|tech writeup|implementation|technical notes))\s*\n?(.*?)(?=<h[1-6]>|^##|$)/mi
+    # Look for headers in HTML or plain text
+    ac_pattern = /<h[1-6]>.*?(acceptance criteria|ac|acceptance).*?<\/h[1-6]>|(?:^|\n)(?:acceptance criteria|ac|acceptance)\s*:?\s*\n/i
+    tech_pattern = /<h[1-6]>.*?(technical writeup|technical details|tech writeup|implementation|technical notes).*?<\/h[1-6]>|(?:^|\n)(?:technical writeup|technical details|tech writeup|implementation|technical notes)\s*:?\s*\n/i
     
-    # Extract sections using regex matches with captured groups
+    # Split by acceptance criteria
     if description =~ ac_pattern
-      match = description.match(ac_pattern)
-      sections[:description] = description[0...match.begin(0)].strip
-      sections[:acceptance_criteria] = match[1].strip if match[1].present?
+      parts = description.split(ac_pattern, 2)
+      sections[:description] = parts[0].strip
       
-      # Check for technical writeup after acceptance criteria
-      remaining = description[match.end(0)..-1]
+      # Now split the rest by technical writeup
+      remaining = parts[-1] # Get last part after split
       if remaining =~ tech_pattern
-        tech_match = remaining.match(tech_pattern)
-        sections[:technical_writeup] = tech_match[1].strip if tech_match[1].present?
+        ac_parts = remaining.split(tech_pattern, 2)
+        sections[:acceptance_criteria] = ac_parts[0].strip
+        sections[:technical_writeup] = ac_parts[-1].strip if ac_parts[-1].present?
+      else
+        sections[:acceptance_criteria] = remaining.strip
       end
     elsif description =~ tech_pattern
       # No AC section, but has technical writeup
-      match = description.match(tech_pattern)
-      sections[:description] = description[0...match.begin(0)].strip
-      sections[:technical_writeup] = match[1].strip if match[1].present?
+      parts = description.split(tech_pattern, 2)
+      sections[:description] = parts[0].strip
+      sections[:technical_writeup] = parts[-1].strip if parts[-1].present?
     else
       # No sections found, everything is description
       sections[:description] = description.strip
