@@ -226,7 +226,8 @@ class AtomicStateManager
 
     # Enhanced presence tracking
     def add_connection(connection_id)
-      atomic_update("add_connection") do
+      # Connection management doesn't need atomic operations
+      begin
         presence = get_presence
         presence[connection_id] = {
           last_seen: Time.current.to_i,
@@ -238,16 +239,23 @@ class AtomicStateManager
         cleanup_stale_connections
         Rails.logger.info "[AtomicState] Connection added: #{connection_id}"
         presence
+      rescue StandardError => e
+        Rails.logger.error "[AtomicState] Add connection error: #{e.message}"
+        {}
       end
     end
 
     def remove_connection(connection_id)
-      atomic_update("remove_connection") do
+      # Connection management doesn't need atomic operations
+      begin
         presence = get_presence
         presence.delete(connection_id)
         save_presence(presence)
         Rails.logger.info "[AtomicState] Connection removed: #{connection_id}"
         presence
+      rescue StandardError => e
+        Rails.logger.error "[AtomicState] Remove connection error: #{e.message}"
+        {}
       end
     end
 
