@@ -28,44 +28,6 @@
       margin: 0 0 30px 0;
       color: #333;
     }
-    .connection-status {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      background: #f5f5f5;
-      border-radius: 20px;
-      font-size: 13px;
-      color: #666;
-    }
-    .connection-indicator {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: #ffc107;
-      animation: pulse 2s infinite;
-    }
-    .connection-indicator.connected {
-      background: #4CAF50;
-      animation: none;
-    }
-    .connection-indicator.disconnected {
-      background: #f44336;
-      animation: blink 1s infinite;
-    }
-    @keyframes pulse {
-      0% { opacity: 1; }
-      50% { opacity: 0.5; }
-      100% { opacity: 1; }
-    }
-    @keyframes blink {
-      0% { opacity: 1; }
-      50% { opacity: 0.3; }
-      100% { opacity: 1; }
-    }
     .presence-badge {
       font-size: 16px;
       font-weight: 500;
@@ -331,27 +293,10 @@
     .status-indicator.error {
       background: #f44336;
     }
-    .version-indicator {
-      position: fixed;
-      bottom: 10px;
-      right: 10px;
-      padding: 5px 10px;
-      background: rgba(0, 0, 0, 0.7);
-      color: white;
-      font-size: 11px;
-      font-family: monospace;
-      border-radius: 3px;
-    }
   </style>
 </head>
 <body>
   <div class="status-indicator" id="statusIndicator">Connected</div>
-  <div class="connection-status">
-    <div class="connection-indicator" id="connectionIndicator"></div>
-    <span id="connectionText">Connecting...</span>
-  </div>
-  
-  <div class="version-indicator" id="versionIndicator">v0</div>
   
   <div class="container">
     <h1>DataBaes Estimations</h1>
@@ -430,20 +375,10 @@
     
     // Enhanced connection status management
     function updateConnectionStatus(connected, text = null) {
-      const indicator = document.getElementById("connectionIndicator");
-      const textEl = document.getElementById("connectionText");
-      
       state.isConnected = connected;
       
       if (connected) {
-        indicator.classList.add("connected");
-        indicator.classList.remove("disconnected");
-        textEl.textContent = text || "Connected";
         state.reconnectAttempts = 0; // Reset on successful connection
-      } else {
-        indicator.classList.remove("connected");
-        indicator.classList.add("disconnected");
-        textEl.textContent = text || "Disconnected";
       }
     }
 
@@ -494,6 +429,7 @@
     
     function syncState(serverState, changeAction = null) {
       console.log(`[Sync] Updating to version ${serverState.version} from ${state.version}, action: ${changeAction}`);
+      console.log(`[Sync] Server state:`, serverState);
       
       // Validate server state before applying
       const validationIssues = validateStateIntegrity(serverState);
@@ -527,11 +463,10 @@
         state.lastUpdated = serverState.last_updated || Date.now();
         state.sessionHealth = serverState.session_health || 100;
         
+        console.log(`[Sync] Updated client state:`, state);
+        
         // Update UI
         renderAll();
-        
-        // Update version indicator
-        document.getElementById("versionIndicator").textContent = `v${state.version}`;
         
         // Show appropriate status message
         if (changeAction && state.version > 0) {
@@ -749,8 +684,11 @@
             console.log("[WebSocket] Received:", data);
             
             try {
-              if (data.action === "sync_state") {
-                // Full state sync with validation
+              if (data.action === "sync_state" || data.action === "sync_state_retry") {
+                // Full state sync with validation (handle both primary and retry)
+                if (data.action === "sync_state_retry") {
+                  console.log(`[WebSocket] Received retry broadcast for ${data.change_action}`);
+                }
                 syncState(data.state, data.change_action);
                 
               } else if (data.action === "presence_update") {
@@ -846,7 +784,7 @@
       const delay = Math.min(1000 * Math.pow(2, state.reconnectAttempts - 1), 30000); // Exponential backoff, max 30s
       
       console.log(`[Reconnection] Attempt ${state.reconnectAttempts}/${state.maxReconnectAttempts} in ${delay}ms`);
-      updateConnectionStatus(false, `Reconnecting... (${state.reconnectAttempts}/${state.maxReconnectAttempts})`);
+      updateConnectionStatus(false);
       
       reconnectTimeout = setTimeout(() => {
         setupSubscription();
@@ -1042,6 +980,8 @@
 
       state.pendingOperations.add('clear');
 
+      console.log(`[Clear] Starting clear operation with version ${state.version}`);
+
       try {
         const response = await fetch("/estimations/clear", {
           method: "POST",
@@ -1054,17 +994,27 @@
           })
         });
 
+        console.log(`[Clear] Response status: ${response.status}`);
         const result = await response.json();
+        console.log(`[Clear] Response result:`, result);
         
         if (!response.ok) {
           if (result.requires_refresh) {
+            console.log(`[Clear] Version conflict detected, refreshing state`);
             showStatus("Session state changed. Refreshing...", true);
             requestStateSync();
           } else {
             throw new Error(result.error || "Failed to clear votes");
           }
         } else {
+          console.log(`[Clear] Clear operation successful, new version: ${result.new_version}`);
           showStatus("Votes cleared successfully");
+          
+          // Force immediate state sync to ensure all clients are updated
+          setTimeout(() => {
+            console.log(`[Clear] Requesting state sync after clear operation`);
+            requestStateSync();
+          }, 200);
         }
       } catch (error) {
         console.error(`[Clear] Error: ${error.message}`);

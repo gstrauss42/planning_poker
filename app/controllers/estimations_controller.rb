@@ -86,14 +86,19 @@ class EstimationsController < ApplicationController
   def clear
     expected_version = params[:expected_version]&.to_i
 
+    Rails.logger.info "[Controller] Clear votes request - expected_version: #{expected_version}"
+
     begin
       # Atomic clear with version checking
-      AtomicStateManager.clear_votes(expected_version)
+      Rails.logger.info "[Controller] Calling AtomicStateManager.clear_votes"
+      result = AtomicStateManager.clear_votes(expected_version)
+      Rails.logger.info "[Controller] Clear votes result: version #{result[:version]}, votes count: #{result[:votes]&.count || 0}"
       
       render json: { 
         success: true, 
         message: "Votes cleared successfully",
-        timestamp: Time.current.to_i
+        timestamp: Time.current.to_i,
+        new_version: result[:version]
       }
       
     rescue AtomicStateManager::VersionConflictError => e
@@ -113,6 +118,7 @@ class EstimationsController < ApplicationController
       
     rescue StandardError => e
       Rails.logger.error "[Controller] Unexpected error during clear: #{e.message}"
+      Rails.logger.error "[Controller] Clear error backtrace: #{e.backtrace.first(3).join(', ')}"
       render json: { 
         error: "An unexpected error occurred. Please try again.",
         timestamp: Time.current.to_i

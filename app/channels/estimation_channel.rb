@@ -6,12 +6,15 @@ class EstimationChannel < ApplicationCable::Channel
     
     begin
       # Track connection atomically
+      Rails.logger.info "[Channel] Adding connection to state manager"
       AtomicStateManager.add_connection(connection.connection_identifier)
       
       # Send current state to THIS client only with retry mechanism
+      Rails.logger.info "[Channel] Sending initial state to client"
       send_state_with_retry
       
       # Broadcast updated presence to ALL clients
+      Rails.logger.info "[Channel] Broadcasting presence update"
       broadcast_presence
       
     rescue AtomicStateManager::StateError => e
@@ -19,6 +22,7 @@ class EstimationChannel < ApplicationCable::Channel
       transmit_error("Failed to join session. Please refresh the page.")
     rescue StandardError => e
       Rails.logger.error "[Channel] Unexpected error during subscription: #{e.message}"
+      Rails.logger.error "[Channel] Error backtrace: #{e.backtrace.first(3).join(', ')}"
       transmit_error("Connection error. Please refresh the page.")
     end
   end
@@ -73,19 +77,25 @@ class EstimationChannel < ApplicationCable::Channel
     max_retries = 3
     
     begin
+      Rails.logger.info "[Channel] Getting broadcast state for client #{connection.connection_identifier}"
       state = AtomicStateManager.get_broadcast_state
+      Rails.logger.info "[Channel] State retrieved: version #{state[:version]}, votes: #{state[:votes]&.count || 0}"
       
-      transmit({
+      transmit_message = {
         action: "sync_state",
         state: state,
         timestamp: Time.current.to_i,
         retry_count: retries
-      })
+      }
+      
+      Rails.logger.info "[Channel] Transmitting state to client #{connection.connection_identifier}"
+      transmit(transmit_message)
       
       Rails.logger.info "[Channel] State sent to #{connection.connection_identifier}, version: #{state[:version]}"
       
     rescue StandardError => e
       retries += 1
+      Rails.logger.error "[Channel] State send failed for client #{connection.connection_identifier}: #{e.message}"
       if retries < max_retries
         Rails.logger.warn "[Channel] State send failed, retry #{retries}/#{max_retries}: #{e.message}"
         sleep(0.1 * retries)

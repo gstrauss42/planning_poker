@@ -5,8 +5,8 @@ class AtomicStateManager
   LOCK_KEY = "estimation_session_lock"
   SESSION_EXPIRY = 2.hours.to_i  # Extended for 1.5 hour sessions
   PRESENCE_EXPIRY = 2.minutes.to_i  # More generous presence tracking
-  LOCK_TIMEOUT = 5.seconds.to_i
-  MAX_RETRIES = 3
+  LOCK_TIMEOUT = 1.second.to_i  # Reduced for faster fallback
+  MAX_RETRIES = 1  # Reduced retries for faster fallback
 
   class StateError < StandardError; end
   class LockTimeoutError < StandardError; end
@@ -15,9 +15,26 @@ class AtomicStateManager
   class << self
     def redis
       @redis ||= begin
-        Redis.new(url: redis_url, timeout: 2, reconnect_attempts: 2)
+        Rails.logger.info "[AtomicState] Attempting Redis connection to: #{redis_url}"
+        redis_client = Redis.new(
+          url: redis_url, 
+          timeout: 2, 
+          reconnect_attempts: 2,
+          reconnect_delay: 0.5,
+          reconnect_delay_max: 2.0
+        )
+        
+        # Test connection immediately
+        Rails.logger.info "[AtomicState] Testing Redis connection..."
+        ping_result = redis_client.ping
+        Rails.logger.info "[AtomicState] Redis ping result: #{ping_result}"
+        
+        redis_client
       rescue StandardError => e
         Rails.logger.error "[AtomicState] Redis connection failed: #{e.message}"
+        Rails.logger.error "[AtomicState] Redis URL was: #{redis_url}"
+        Rails.logger.error "[AtomicState] Error class: #{e.class}"
+        Rails.logger.error "[AtomicState] Error backtrace: #{e.backtrace.first(5).join(', ')}"
         nil
       end
     end
@@ -27,47 +44,55 @@ class AtomicStateManager
     end
 
     def redis_available?
+      Rails.logger.debug "[AtomicState] Checking Redis availability..."
+      
       return false unless redis
       
       begin
-        redis.ping == "PONG"
-      rescue StandardError
+        start_time = Time.current
+        ping_result = redis.ping
+        latency = ((Time.current - start_time) * 1000).round(2)
+        
+        Rails.logger.debug "[AtomicState] Redis ping: #{ping_result}, latency: #{latency}ms"
+        
+        if ping_result == "PONG"
+          Rails.logger.debug "[AtomicState] Redis is available"
+          true
+        else
+          Rails.logger.warn "[AtomicState] Redis ping returned unexpected result: #{ping_result}"
+          false
+        end
+      rescue StandardError => e
+        Rails.logger.error "[AtomicState] Redis ping failed: #{e.message}"
+        Rails.logger.error "[AtomicState] Redis error class: #{e.class}"
         false
       end
     end
 
     # Atomic state operations with locking and fallback
     def atomic_update(operation_name, &block)
-      # If Redis is not available, fall back to non-atomic operations
-      unless redis_available?
+      # Always try Redis first, but fail fast to fallback
+      if redis_available?
+        begin
+          # Quick lock attempt with short timeout
+          lock_acquired = acquire_lock(operation_name)
+          if lock_acquired
+            result = block.call
+            Rails.logger.info "[AtomicState] #{operation_name} completed with Redis"
+            return result
+          else
+            Rails.logger.warn "[AtomicState] Lock timeout for #{operation_name}, using fallback"
+            return fallback_update(operation_name, &block)
+          end
+        rescue StandardError => e
+          Rails.logger.warn "[AtomicState] Redis error in #{operation_name}: #{e.message}, using fallback"
+          return fallback_update(operation_name, &block)
+        ensure
+          release_lock(operation_name) if redis_available?
+        end
+      else
         Rails.logger.warn "[AtomicState] Redis unavailable, using fallback for #{operation_name}"
         return fallback_update(operation_name, &block)
-      end
-      
-      retries = 0
-      
-      begin
-        lock_acquired = acquire_lock(operation_name)
-        raise LockTimeoutError, "Failed to acquire lock for #{operation_name}" unless lock_acquired
-        
-        result = block.call
-        Rails.logger.info "[AtomicState] #{operation_name} completed successfully"
-        result
-      rescue LockTimeoutError => e
-        retries += 1
-        if retries < MAX_RETRIES
-          Rails.logger.warn "[AtomicState] Lock timeout for #{operation_name}, retry #{retries}/#{MAX_RETRIES}"
-          sleep(0.1 * retries) # Exponential backoff
-          retry
-        else
-          Rails.logger.error "[AtomicState] Max retries exceeded for #{operation_name}, falling back"
-          return fallback_update(operation_name, &block)
-        end
-      rescue StandardError => e
-        Rails.logger.error "[AtomicState] Error in #{operation_name}: #{e.message}, falling back"
-        return fallback_update(operation_name, &block)
-      ensure
-        release_lock(operation_name) if redis_available?
       end
     end
 
@@ -165,10 +190,14 @@ class AtomicStateManager
     end
 
     def clear_votes(expected_version = nil)
+      Rails.logger.info "[AtomicState] clear_votes called with expected_version: #{expected_version}"
+      
       atomic_update("clear_votes") do
         current_state = get_state
+        Rails.logger.info "[AtomicState] Current state version: #{current_state[:version]}, votes count: #{current_state[:votes]&.count || 0}"
         
         if expected_version && current_state[:version] != expected_version
+          Rails.logger.warn "[AtomicState] Version conflict: expected #{expected_version}, got #{current_state[:version]}"
           raise VersionConflictError, "Version mismatch: expected #{expected_version}, got #{current_state[:version]}"
         end
         
@@ -177,6 +206,8 @@ class AtomicStateManager
         new_state[:revealed] = false
         new_state[:version] = current_state[:version] + 1
         new_state[:last_updated] = Time.current.to_i
+        
+        Rails.logger.info "[AtomicState] New state version: #{new_state[:version]}, votes cleared"
         
         save_state(new_state)
         broadcast_state_change("votes_cleared", new_state)
@@ -335,15 +366,23 @@ class AtomicStateManager
     end
 
     def save_state(state)
+      Rails.logger.debug "[AtomicState] Saving state version #{state[:version]}"
+      
       if redis_available?
+        Rails.logger.debug "[AtomicState] Using Redis to save state"
+        start_time = Time.current
         redis.setex(SESSION_KEY, SESSION_EXPIRY, state.to_json)
+        save_time = ((Time.current - start_time) * 1000).round(2)
+        Rails.logger.debug "[AtomicState] Redis save completed in #{save_time}ms"
       else
-        # Fallback to Rails cache
+        Rails.logger.warn "[AtomicState] Redis unavailable, using Rails cache fallback"
         Rails.cache.write(SESSION_KEY, state, expires_in: SESSION_EXPIRY.seconds)
       end
       state
     rescue StandardError => e
-      Rails.logger.error "[AtomicState] Error saving state: #{e.message}, using fallback"
+      Rails.logger.error "[AtomicState] Error saving state: #{e.message}"
+      Rails.logger.error "[AtomicState] Save error class: #{e.class}"
+      Rails.logger.warn "[AtomicState] Falling back to Rails cache"
       Rails.cache.write(SESSION_KEY, state, expires_in: SESSION_EXPIRY.seconds)
       state
     end
@@ -395,22 +434,38 @@ class AtomicStateManager
     end
 
     def broadcast_state_change(action, state)
-      broadcast_state = get_broadcast_state
+      Rails.logger.info "[AtomicState] Broadcasting #{action}, version: #{state[:version]}"
       
-      Rails.logger.info "[AtomicState] Broadcasting #{action}, version: #{broadcast_state[:version]}"
-      
-      ActionCable.server.broadcast(
-        "estimation_session",
-        {
+      begin
+        broadcast_state = get_broadcast_state
+        
+        # Send multiple broadcasts with slight delays to ensure delivery
+        broadcast_message = {
           action: "sync_state",
           state: broadcast_state,
           change_action: action,
-          timestamp: Time.current.to_i
+          timestamp: Time.current.to_i,
+          broadcast_id: SecureRandom.uuid
         }
-      )
-    rescue StandardError => e
-      Rails.logger.error "[AtomicState] Failed to broadcast state change: #{e.message}"
-      # Don't raise here - state is saved, broadcast failure shouldn't fail the operation
+        
+        # Primary broadcast
+        ActionCable.server.broadcast("estimation_session", broadcast_message)
+        
+        # Secondary broadcast after 100ms for reliability
+        Thread.new do
+          sleep(0.1)
+          ActionCable.server.broadcast("estimation_session", broadcast_message.merge(
+            action: "sync_state_retry",
+            retry: true
+          ))
+        end
+        
+        Rails.logger.info "[AtomicState] Broadcast sent for #{action} (primary + retry)"
+        
+      rescue StandardError => e
+        Rails.logger.error "[AtomicState] Failed to broadcast state change: #{e.message}"
+        # Don't raise here - state is saved, broadcast failure shouldn't fail the operation
+      end
     end
 
     def calculate_session_health(state, presence)
