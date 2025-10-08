@@ -5,8 +5,8 @@ class AtomicStateManager
   LOCK_KEY = "estimation_session_lock"
   SESSION_EXPIRY = 2.hours.to_i  # Extended for 1.5 hour sessions
   PRESENCE_EXPIRY = 2.minutes.to_i  # More generous presence tracking
-  LOCK_TIMEOUT = 1.second.to_i  # Reduced for faster fallback
-  MAX_RETRIES = 1  # Reduced retries for faster fallback
+  LOCK_TIMEOUT = 3.seconds.to_i  # Increased for better reliability
+  MAX_RETRIES = 2  # Reduced retries but increased timeout
 
   class StateError < StandardError; end
   class LockTimeoutError < StandardError; end
@@ -18,8 +18,8 @@ class AtomicStateManager
         Rails.logger.info "[AtomicState] Attempting Redis connection to: #{redis_url}"
         redis_client = Redis.new(
           url: redis_url, 
-          timeout: 2, 
-          reconnect_attempts: 2
+          timeout: 5,  # Increased timeout
+          reconnect_attempts: 3  # More reconnection attempts
         )
         
         # Test connection immediately
@@ -29,10 +29,17 @@ class AtomicStateManager
         
         redis_client
       rescue StandardError => e
+        Rails.logger.error "=" * 80
+        Rails.logger.error "🚨 REDIS CONNECTION FAILED - USING FALLBACK MODE 🚨"
+        Rails.logger.error "=" * 80
         Rails.logger.error "[AtomicState] Redis connection failed: #{e.message}"
         Rails.logger.error "[AtomicState] Redis URL was: #{redis_url}"
         Rails.logger.error "[AtomicState] Error class: #{e.class}"
         Rails.logger.error "[AtomicState] Error backtrace: #{e.backtrace.first(5).join(', ')}"
+        Rails.logger.error "=" * 80
+        Rails.logger.error "⚠️  System will use Rails cache fallback for state management"
+        Rails.logger.error "⚠️  Synchronization will work but with reduced atomic guarantees"
+        Rails.logger.error "=" * 80
         nil
       end
     end
@@ -61,8 +68,12 @@ class AtomicStateManager
           false
         end
       rescue StandardError => e
+        Rails.logger.error "=" * 60
+        Rails.logger.error "🚨 REDIS BECAME UNAVAILABLE - SWITCHING TO FALLBACK 🚨"
+        Rails.logger.error "=" * 60
         Rails.logger.error "[AtomicState] Redis ping failed: #{e.message}"
         Rails.logger.error "[AtomicState] Redis error class: #{e.class}"
+        Rails.logger.error "=" * 60
         false
       end
     end
@@ -72,7 +83,7 @@ class AtomicStateManager
       # Always try Redis first, but fail fast to fallback
       if redis_available?
         begin
-          # Quick lock attempt with short timeout
+          # Quick lock attempt with timeout
           lock_acquired = acquire_lock(operation_name)
           if lock_acquired
             result = block.call
@@ -338,23 +349,39 @@ class AtomicStateManager
       state = get_state
       presence = get_presence
       
-      # Clean up stale connections first
-      cleaned_presence = cleanup_stale_connections
+      Rails.logger.debug "[AtomicState] Getting broadcast state - Redis available: #{redis_available?}"
+      Rails.logger.debug "[AtomicState] Current votes: #{state[:votes].keys.join(', ')}"
+      Rails.logger.debug "[AtomicState] Current presence: #{presence.keys.join(', ')}"
       
-      # Get user names from currently connected users
-      connected_user_names = cleaned_presence.values.map { |data| data[:user_name] }.compact
-      
-      # Only count votes from currently connected users
-      current_votes = state[:votes].select { |user_name, _| connected_user_names.include?(user_name) }
-      
-      # Update state if we removed any votes from disconnected users
-      if current_votes.count != state[:votes].count
-        Rails.logger.info "[AtomicState] Cleaned up votes from disconnected users: #{state[:votes].count} -> #{current_votes.count}"
-        state[:votes] = current_votes
-        state[:version] = state[:version] + 1
-        state[:last_updated] = Time.current.to_i
-        save_state(state)
+      # Only clean up stale connections if Redis is available
+      # When Redis is down, we can't reliably track presence, so don't remove votes
+      if redis_available?
+        cleaned_presence = cleanup_stale_connections
+        
+        # Get user names from currently connected users
+        connected_user_names = cleaned_presence.values.map { |data| data[:user_name] }.compact
+        
+        # Only count votes from currently connected users
+        current_votes = state[:votes].select { |user_name, _| connected_user_names.include?(user_name) }
+        
+        # Update state if we removed any votes from disconnected users
+        if current_votes.count != state[:votes].count
+          Rails.logger.info "[AtomicState] Cleaned up votes from disconnected users: #{state[:votes].count} -> #{current_votes.count}"
+          state[:votes] = current_votes
+          state[:version] = state[:version] + 1
+          state[:last_updated] = Time.current.to_i
+          save_state(state)
+        end
+        
+        connected_count = cleaned_presence.count
+      else
+        # Redis unavailable - don't clean up votes, use all votes
+        Rails.logger.warn "[AtomicState] Redis unavailable - preserving all votes in broadcast state"
+        connected_count = presence.count
       end
+      
+      Rails.logger.debug "[AtomicState] Final votes for broadcast: #{state[:votes].keys.join(', ')}"
+      Rails.logger.debug "[AtomicState] Connected count: #{connected_count}, Voted count: #{state[:votes].count}"
       
       {
         ticket_data: state[:ticket_data],
@@ -362,11 +389,11 @@ class AtomicStateManager
         ticket_id: state[:ticket_id],
         votes: state[:votes],
         revealed: state[:revealed],
-        connected_count: cleaned_presence.count,
+        connected_count: connected_count,
         voted_count: state[:votes].count,
         version: state[:version],
         last_updated: state[:last_updated],
-        session_health: calculate_session_health(state, cleaned_presence)
+        session_health: calculate_session_health(state, redis_available? ? cleaned_presence : presence)
       }
     end
 
