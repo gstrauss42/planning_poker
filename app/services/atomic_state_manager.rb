@@ -14,30 +14,33 @@ class AtomicStateManager
 
   class << self
     def redis
-      @redis ||= begin
-        Rails.logger.info "[AtomicState] Attempting Redis connection to: #{redis_url}"
-        redis_client = Redis.new(
-          url: redis_url, 
-          timeout: 5,
-          reconnect_attempts: 3,
-          reconnect_delay: 0.5,
-          reconnect_delay_max: 2.0,
-          # Connection pool settings to prevent connection leaks
-          pool_size: 5,
-          pool_timeout: 5,
-          # Close connections after use
-          close_after_use: true
-        )
+      return @redis if @redis
+      
+      Rails.logger.info "[AtomicState] Initializing Redis connection pool to: #{redis_url}"
+      
+      begin
+        # Create Redis connection pool to prevent connection leaks
+        require 'connection_pool'
+        
+        @redis = ConnectionPool.new(size: 5, timeout: 5) do
+          Redis.new(
+            url: redis_url, 
+            timeout: 5,
+            reconnect_attempts: 3
+          )
+        end
         
         # Test connection immediately
         Rails.logger.info "[AtomicState] Testing Redis connection..."
-        ping_result = redis_client.ping
-        Rails.logger.info "[AtomicState] Redis ping result: #{ping_result}"
+        @redis.with do |conn|
+          ping_result = conn.ping
+          Rails.logger.info "[AtomicState] Redis ping result: #{ping_result}"
+        end
         
         # Clean up any stale locks on startup
         cleanup_stale_locks
         
-        redis_client
+        @redis
       rescue StandardError => e
         Rails.logger.error "=" * 80
         Rails.logger.error "🚨 REDIS CONNECTION FAILED - USING FALLBACK MODE 🚨"
@@ -50,6 +53,7 @@ class AtomicStateManager
         Rails.logger.error "⚠️  System will use Rails cache fallback for state management"
         Rails.logger.error "⚠️  Synchronization will work but with reduced atomic guarantees"
         Rails.logger.error "=" * 80
+        @redis = nil
         nil
       end
     end
@@ -68,8 +72,24 @@ class AtomicStateManager
       end
     end
 
+    # Reset Redis connection (for testing or recovery)
+    def reset_redis_connection
+      Rails.logger.info "[AtomicState] Resetting Redis connection"
+      close_redis_connection
+      @redis = nil
+    end
+
     def redis_url
       Rails.application.config.redis_url || "redis://localhost:6379/0"
+    end
+
+    # Helper method to execute Redis operations with connection pool
+    def with_redis(&block)
+      if redis_available?
+        redis.with(&block)
+      else
+        raise StandardError, "Redis not available"
+      end
     end
 
     def redis_available?
@@ -79,7 +99,10 @@ class AtomicStateManager
       
       begin
         start_time = Time.current
-        ping_result = redis.ping
+        ping_result = nil
+        redis.with do |conn|
+          ping_result = conn.ping
+        end
         latency = ((Time.current - start_time) * 1000).round(2)
         
         Rails.logger.debug "[AtomicState] Redis ping: #{ping_result}, latency: #{latency}ms"
@@ -150,7 +173,7 @@ class AtomicStateManager
 
     def get_state
       if redis_available?
-        state_data = redis.get(SESSION_KEY)
+        state_data = with_redis { |conn| conn.get(SESSION_KEY) }
         if state_data
           JSON.parse(state_data, symbolize_names: true)
         else
@@ -515,14 +538,16 @@ class AtomicStateManager
 
     def cleanup_redis_connections
       begin
-        # Force close and reset Redis connection to prevent leaks
-        close_redis_connection
-        
-        # Log current Redis client count if possible
+        # Log current Redis client count if possible before cleanup
         if redis_available?
           info = redis.info("clients")
-          Rails.logger.info "[AtomicState] Redis client info: #{info}"
+          Rails.logger.info "[AtomicState] Redis client info before cleanup: #{info}"
         end
+        
+        # Force close and reset Redis connection to prevent leaks
+        reset_redis_connection
+        
+        Rails.logger.info "[AtomicState] Redis connection cleanup completed"
       rescue StandardError => e
         Rails.logger.error "[AtomicState] Error during Redis connection cleanup: #{e.message}"
       end
@@ -540,7 +565,7 @@ class AtomicStateManager
       if redis_available?
         Rails.logger.debug "[AtomicState] Using Redis to save state"
         start_time = Time.current
-        redis.setex(SESSION_KEY, SESSION_EXPIRY, state.to_json)
+        with_redis { |conn| conn.setex(SESSION_KEY, SESSION_EXPIRY, state.to_json) }
         save_time = ((Time.current - start_time) * 1000).round(2)
         Rails.logger.debug "[AtomicState] Redis save completed in #{save_time}ms"
       else

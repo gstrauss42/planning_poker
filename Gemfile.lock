@@ -389,6 +389,7 @@ DEPENDENCIES
   bootsnap
   brakeman
   capybara
+  connection_pool (~> 2.4)
   debug
   httparty (~> 0.21)
   importmap-rails
@@ -397,7 +398,7 @@ DEPENDENCIES
   propshaft
   puma (>= 5.0)
   rails (~> 8.0.2)
-  redis (~> 5.0)
+  redis (~> 5.4)
   rubocop-rails-omakase
   selenium-webdriver
   solid_cable
