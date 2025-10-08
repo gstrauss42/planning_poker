@@ -586,6 +586,17 @@
         state.revealed = serverState.revealed || false;
         state.ticketData = serverState.ticket_data || null;
         state.ticketId = serverState.ticket_id || null;
+        
+        // Debug ticket data
+        if (serverState.ticket_data) {
+          console.log(`[Sync] Ticket data received:`, serverState.ticket_data);
+          console.log(`[Sync] Attachments count: ${serverState.ticket_data.attachments?.length || 0}`);
+          if (serverState.ticket_data.attachments) {
+            serverState.ticket_data.attachments.forEach((att, i) => {
+              console.log(`[Sync] Attachment ${i}:`, att);
+            });
+          }
+        }
         state.connectedCount = serverState.connected_count || 0;
         state.votedCount = serverState.voted_count || 0;
         state.version = serverState.version || 0;
@@ -725,8 +736,11 @@
 
       // Add attachments section
       if (state.ticketData.attachments && state.ticketData.attachments.length > 0) {
+        console.log(`[Render] Rendering attachments:`, state.ticketData.attachments);
         const imageAttachments = state.ticketData.attachments.filter(att => att.is_image);
         const otherAttachments = state.ticketData.attachments.filter(att => !att.is_image);
+        console.log(`[Render] Image attachments:`, imageAttachments);
+        console.log(`[Render] Other attachments:`, otherAttachments);
         
         html += `
           <div class="ticket-section-block">

@@ -143,12 +143,23 @@ class JiraService
     attachments = data.dig("fields", "attachment") || []
     
     attachments.map do |attachment|
+      # Convert relative URL to absolute URL
+      content_url = attachment["content"]
+      Rails.logger.debug "[JIRA] Original attachment URL: #{content_url}"
+      
+      if content_url && !content_url.start_with?("http")
+        # If it's a relative URL, make it absolute using the JIRA base URL
+        content_url = "#{@base_url}#{content_url}" unless content_url.start_with?("/")
+        content_url = "#{@base_url}/#{content_url}" if content_url.start_with?("/")
+        Rails.logger.debug "[JIRA] Converted to absolute URL: #{content_url}"
+      end
+      
       {
         id: attachment["id"],
         filename: attachment["filename"],
         mime_type: attachment["mimeType"],
         size: attachment["size"],
-        url: attachment["content"],
+        url: content_url,
         thumbnail: attachment.dig("thumbnail"),
         is_image: image_file?(attachment["filename"])
       }

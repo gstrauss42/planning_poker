@@ -427,6 +427,7 @@ class AtomicStateManager
       
       Rails.logger.debug "[AtomicState] Final votes for broadcast: #{state[:votes].keys.join(', ')}"
       Rails.logger.debug "[AtomicState] Connected count: #{connected_count}, Voted count: #{voted_count}"
+      Rails.logger.debug "[AtomicState] Ticket data attachments: #{state[:ticket_data]&.dig(:attachments)&.count || 0}"
       
       {
         ticket_data: state[:ticket_data],
