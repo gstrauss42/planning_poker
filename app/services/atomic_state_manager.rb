@@ -224,8 +224,8 @@ class AtomicStateManager
         new_state[:version] = current_state[:version] + 1
         new_state[:last_updated] = Time.current.to_i
         
-        # Update presence to track which connection this user belongs to
-        update_user_connection_mapping(user_name)
+        # Note: User-connection mapping is handled automatically when users connect
+        # via the add_connection method, so we don't need to update it here
         
         save_state(new_state)
         broadcast_state_change("vote_added", new_state)
@@ -419,33 +419,13 @@ class AtomicStateManager
       Rails.logger.debug "[AtomicState] Current votes: #{state[:votes].keys.join(', ')}"
       Rails.logger.debug "[AtomicState] Current presence: #{presence.keys.join(', ')}"
       
-      # Only clean up stale connections if Redis is available
-      # When Redis is down, we can't reliably track presence, so don't remove votes
-      if redis_available?
-        # Get user names from currently connected users (without cleanup)
-        connected_user_names = presence.values.map { |data| data[:user_name] }.compact
-        
-        # Only count votes from currently connected users
-        current_votes = state[:votes].select { |user_name, _| connected_user_names.include?(user_name) }
-        
-        # Update state if we removed any votes from disconnected users
-        if current_votes.count != state[:votes].count
-          Rails.logger.info "[AtomicState] Cleaned up votes from disconnected users: #{state[:votes].count} -> #{current_votes.count}"
-          state[:votes] = current_votes
-          state[:version] = state[:version] + 1
-          state[:last_updated] = Time.current.to_i
-          save_state(state)
-        end
-        
-        connected_count = presence.count
-      else
-        # Redis unavailable - don't clean up votes, use all votes
-        Rails.logger.warn "[AtomicState] Redis unavailable - preserving all votes in broadcast state"
-        connected_count = presence.count
-      end
+      # Simple broadcast state - no cleanup during vote operations
+      # Cleanup is handled separately via periodic jobs to avoid race conditions
+      connected_count = presence.count
+      voted_count = state[:votes].count
       
       Rails.logger.debug "[AtomicState] Final votes for broadcast: #{state[:votes].keys.join(', ')}"
-      Rails.logger.debug "[AtomicState] Connected count: #{connected_count}, Voted count: #{state[:votes].count}"
+      Rails.logger.debug "[AtomicState] Connected count: #{connected_count}, Voted count: #{voted_count}"
       
       {
         ticket_data: state[:ticket_data],
@@ -454,11 +434,48 @@ class AtomicStateManager
         votes: state[:votes],
         revealed: state[:revealed],
         connected_count: connected_count,
-        voted_count: state[:votes].count,
+        voted_count: voted_count,
         version: state[:version],
         last_updated: state[:last_updated],
-        session_health: calculate_session_health(state, redis_available? ? presence : presence)
+        session_health: calculate_session_health(state, presence)
       }
+    end
+
+    def cleanup_stale_votes
+      # Separate method for cleaning up votes from disconnected users
+      # This should be called periodically, not during vote operations
+      Rails.logger.info "[AtomicState] Starting periodic vote cleanup"
+      
+      state = get_state
+      presence = get_presence
+      
+      if redis_available? && presence.count > 0
+        # Get user names from currently connected users
+        connected_user_names = presence.values.map { |data| data[:user_name] }.compact
+        
+        # Only count votes from currently connected users
+        current_votes = state[:votes].select { |user_name, _| connected_user_names.include?(user_name) }
+        
+        # Clean up votes from disconnected users
+        if current_votes.count != state[:votes].count
+          removed_count = state[:votes].count - current_votes.count
+          Rails.logger.info "[AtomicState] Periodic cleanup: removing #{removed_count} vote(s) from disconnected users"
+          
+          new_state = state.dup
+          new_state[:votes] = current_votes
+          new_state[:version] = state[:version] + 1
+          new_state[:last_updated] = Time.current.to_i
+          
+          save_state(new_state)
+          broadcast_state_change("votes_cleaned", new_state)
+          
+          Rails.logger.info "[AtomicState] Periodic cleanup completed: #{state[:votes].count} -> #{current_votes.count} votes"
+        else
+          Rails.logger.debug "[AtomicState] Periodic cleanup: no votes to remove"
+        end
+      else
+        Rails.logger.warn "[AtomicState] Periodic cleanup skipped: Redis unavailable or no connected users"
+      end
     end
 
     def validate_state_integrity

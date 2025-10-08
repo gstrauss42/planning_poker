@@ -9,6 +9,9 @@ class SessionHealthMonitorJob < ApplicationJob
       # Clean up Redis connections to prevent leaks
       AtomicStateManager.cleanup_redis_connections
       
+      # Clean up stale votes from disconnected users (separate from vote operations)
+      AtomicStateManager.cleanup_stale_votes
+      
       health_report = SessionMonitor.monitor_session_health
       
       # Log health status
