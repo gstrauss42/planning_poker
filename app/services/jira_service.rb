@@ -30,10 +30,21 @@ class JiraService
     
     url = "#{@base_url}/rest/api/3/issue/#{ticket_key}"
     
+    # Include custom fields if configured
+    fields_list = ["summary", "description", "status", "priority", "assignee", "issuetype"]
+    fields_list << @acceptance_criteria_field if @acceptance_criteria_field.present?
+    fields_list << @technical_writeup_field if @technical_writeup_field.present?
+    
+    params = {
+      fields: fields_list.join(","),
+      expand: "renderedFields"
+    }
+    
     response = HTTParty.get(
       url,
       basic_auth: { username: @email, password: @api_token },
-      headers: { 'Content-Type' => 'application/json' }
+      headers: { 'Content-Type' => 'application/json' },
+      query: params
     )
 
     if response.success?
@@ -86,12 +97,28 @@ class JiraService
     # Parse sections from description
     sections = parse_description_sections(raw_description)
     
+    # Try to get acceptance criteria from custom field if configured
+    acceptance_criteria = if @acceptance_criteria_field.present?
+      field_value = data.dig("fields", @acceptance_criteria_field)
+      extract_field_value(field_value)
+    else
+      sections[:acceptance_criteria]
+    end
+    
+    # Try to get technical writeup from custom field if configured
+    technical_writeup = if @technical_writeup_field.present?
+      field_value = data.dig("fields", @technical_writeup_field)
+      extract_field_value(field_value)
+    else
+      sections[:technical_writeup]
+    end
+    
     {
       key: data["key"],
       summary: data.dig("fields", "summary"),
       description: sections[:description] || raw_description,
-      acceptance_criteria: sections[:acceptance_criteria],
-      technical_writeup: sections[:technical_writeup],
+      acceptance_criteria: acceptance_criteria,
+      technical_writeup: technical_writeup,
       status: data.dig("fields", "status", "name"),
       priority: data.dig("fields", "priority", "name"),
       assignee: data.dig("fields", "assignee", "displayName"),
