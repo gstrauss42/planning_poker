@@ -13,3 +13,14 @@ production:
   clear_solid_queue_finished_jobs:
     command: "SolidQueue::Job.clear_finished_in_batches(sleep_between_batches: 0.3)"
     schedule: every hour at minute 12
+  
+  session_health_monitor:
+    class: SessionHealthMonitorJob
+    queue: default
+    schedule: every 30 seconds
+
+development:
+  session_health_monitor:
+    class: SessionHealthMonitorJob
+    queue: default
+    schedule: every 30 seconds

@@ -5,39 +5,119 @@ class EstimationsController < ApplicationController
   def submit
     user_name = params[:user_name]
     points = params[:points]
+    expected_version = params[:expected_version]&.to_i
 
     if user_name.blank? || points.blank?
       render json: { error: "Name and points are required" }, status: :bad_request
       return
     end
 
-    # Update state
-    EstimationSessionStore.add_vote(user_name, points)
-    
-    # Broadcast complete state to ALL
-    broadcast_current_state
-    
-    render json: { success: true }
+    begin
+      # Atomic vote submission with version checking
+      AtomicStateManager.add_vote(user_name, points, expected_version)
+      
+      render json: { 
+        success: true, 
+        message: "Vote submitted successfully",
+        timestamp: Time.current.to_i
+      }
+      
+    rescue AtomicStateManager::VersionConflictError => e
+      Rails.logger.warn "[Controller] Version conflict during vote submission: #{e.message}"
+      render json: { 
+        error: "Session state has changed. Please refresh and try again.",
+        requires_refresh: true,
+        timestamp: Time.current.to_i
+      }, status: :conflict
+      
+    rescue AtomicStateManager::StateError => e
+      Rails.logger.error "[Controller] State error during vote submission: #{e.message}"
+      render json: { 
+        error: "Failed to submit vote. Please try again.",
+        timestamp: Time.current.to_i
+      }, status: :unprocessable_entity
+      
+    rescue StandardError => e
+      Rails.logger.error "[Controller] Unexpected error during vote submission: #{e.message}"
+      render json: { 
+        error: "An unexpected error occurred. Please try again.",
+        timestamp: Time.current.to_i
+      }, status: :internal_server_error
+    end
   end
 
   def reveal
-    # Update state
-    EstimationSessionStore.reveal
-    
-    # Broadcast complete state to ALL
-    broadcast_current_state
-    
-    render json: { success: true }
+    expected_version = params[:expected_version]&.to_i
+
+    begin
+      # Atomic reveal with version checking
+      AtomicStateManager.reveal_votes(expected_version)
+      
+      render json: { 
+        success: true, 
+        message: "Votes revealed successfully",
+        timestamp: Time.current.to_i
+      }
+      
+    rescue AtomicStateManager::VersionConflictError => e
+      Rails.logger.warn "[Controller] Version conflict during reveal: #{e.message}"
+      render json: { 
+        error: "Session state has changed. Please refresh and try again.",
+        requires_refresh: true,
+        timestamp: Time.current.to_i
+      }, status: :conflict
+      
+    rescue AtomicStateManager::StateError => e
+      Rails.logger.error "[Controller] State error during reveal: #{e.message}"
+      render json: { 
+        error: "Failed to reveal votes. Please try again.",
+        timestamp: Time.current.to_i
+      }, status: :unprocessable_entity
+      
+    rescue StandardError => e
+      Rails.logger.error "[Controller] Unexpected error during reveal: #{e.message}"
+      render json: { 
+        error: "An unexpected error occurred. Please try again.",
+        timestamp: Time.current.to_i
+      }, status: :internal_server_error
+    end
   end
 
   def clear
-    # Update state
-    EstimationSessionStore.clear_votes
-    
-    # Broadcast complete state to ALL
-    broadcast_current_state
-    
-    render json: { success: true }
+    expected_version = params[:expected_version]&.to_i
+
+    begin
+      # Atomic clear with version checking
+      AtomicStateManager.clear_votes(expected_version)
+      
+      render json: { 
+        success: true, 
+        message: "Votes cleared successfully",
+        timestamp: Time.current.to_i
+      }
+      
+    rescue AtomicStateManager::VersionConflictError => e
+      Rails.logger.warn "[Controller] Version conflict during clear: #{e.message}"
+      render json: { 
+        error: "Session state has changed. Please refresh and try again.",
+        requires_refresh: true,
+        timestamp: Time.current.to_i
+      }, status: :conflict
+      
+    rescue AtomicStateManager::StateError => e
+      Rails.logger.error "[Controller] State error during clear: #{e.message}"
+      render json: { 
+        error: "Failed to clear votes. Please try again.",
+        timestamp: Time.current.to_i
+      }, status: :unprocessable_entity
+      
+    rescue StandardError => e
+      Rails.logger.error "[Controller] Unexpected error during clear: #{e.message}"
+      render json: { 
+        error: "An unexpected error occurred. Please try again.",
+        timestamp: Time.current.to_i
+      }, status: :internal_server_error
+    end
   end
 
   def fetch_jira_ticket
@@ -52,40 +132,69 @@ class EstimationsController < ApplicationController
       jira_service = JiraService.new
       ticket_data = jira_service.fetch_ticket(jira_input)
       
-      # Update state (this clears votes)
-      EstimationSessionStore.set_ticket(ticket_data, ticket_data[:formatted_title])
+      # Atomic ticket setting
+      AtomicStateManager.set_ticket(ticket_data, ticket_data[:formatted_title])
       
-      # Broadcast complete state to ALL
-      broadcast_current_state
+      render json: { 
+        success: true, 
+        message: "Ticket loaded successfully",
+        timestamp: Time.current.to_i
+      }
       
-      render json: { success: true }
     rescue JiraService::JiraError => e
       Rails.logger.error("JIRA fetch error: #{e.message}")
-      render json: { error: e.message }, status: :unprocessable_entity
+      render json: { 
+        error: e.message,
+        timestamp: Time.current.to_i
+      }, status: :unprocessable_entity
+      
+    rescue AtomicStateManager::StateError => e
+      Rails.logger.error "[Controller] State error during JIRA fetch: #{e.message}"
+      render json: { 
+        error: "Failed to load ticket. Please try again.",
+        timestamp: Time.current.to_i
+      }, status: :unprocessable_entity
+      
     rescue StandardError => e
       Rails.logger.error("Unexpected error: #{e.message}")
-      render json: { error: "An unexpected error occurred" }, status: :internal_server_error
+      render json: { 
+        error: "An unexpected error occurred",
+        timestamp: Time.current.to_i
+      }, status: :internal_server_error
     end
   end
 
   def get_session_state
-    render json: EstimationSessionStore.get_broadcast_state
+    begin
+      state = AtomicStateManager.get_broadcast_state
+      render json: state
+    rescue StandardError => e
+      Rails.logger.error "[Controller] Error getting session state: #{e.message}"
+      render json: { 
+        error: "Failed to get session state",
+        timestamp: Time.current.to_i
+      }, status: :internal_server_error
+    end
   end
 
-  private
-
-  def broadcast_current_state
-    state = EstimationSessionStore.get_broadcast_state
-    
-    Rails.logger.info "[Broadcast] Sending state v#{state[:version]} to all clients"
-    
-    # Single unified broadcast to ALL clients
-    ActionCable.server.broadcast(
-      "estimation_session",
-      {
-        action: "sync_state",
-        state: state
+  def health_check
+    begin
+      issues = AtomicStateManager.validate_state_integrity
+      state = AtomicStateManager.get_broadcast_state
+      
+      render json: {
+        status: issues.any? ? "degraded" : "healthy",
+        issues: issues,
+        session_health: state[:session_health],
+        timestamp: Time.current.to_i
       }
-    )
+    rescue StandardError => e
+      Rails.logger.error "[Controller] Error during health check: #{e.message}"
+      render json: { 
+        status: "error",
+        error: "Health check failed",
+        timestamp: Time.current.to_i
+      }, status: :internal_server_error
+    end
   end
 end

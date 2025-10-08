@@ -23,5 +23,12 @@ module PlanningPoker
     #
     # config.time_zone = "Central Time (US & Canada)"
     # config.eager_load_paths << Rails.root.join("extras")
+    
+    # Redis configuration for atomic state management
+    config.redis_url = ENV.fetch("REDIS_URL", "redis://localhost:6379/0")
+    
+    # Action Cable configuration for production
+    config.action_cable.disable_request_forgery_protection = false
+    config.action_cable.allow_same_origin_as_host = true
   end
 end
