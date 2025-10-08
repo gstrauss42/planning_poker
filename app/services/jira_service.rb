@@ -31,7 +31,7 @@ class JiraService
     url = "#{@base_url}/rest/api/3/issue/#{ticket_key}"
     
     # Include custom fields if configured
-    fields_list = ["summary", "description", "status", "priority", "assignee", "issuetype"]
+    fields_list = ["summary", "description", "status", "priority", "assignee", "issuetype", "attachment"]
     fields_list << @acceptance_criteria_field if @acceptance_criteria_field.present?
     fields_list << @technical_writeup_field if @technical_writeup_field.present?
     
@@ -113,12 +113,16 @@ class JiraService
       sections[:technical_writeup]
     end
     
+    # Get attachments
+    attachments = extract_attachments(data)
+    
     {
       key: data["key"],
       summary: data.dig("fields", "summary"),
       description: sections[:description] || raw_description,
       acceptance_criteria: acceptance_criteria,
       technical_writeup: technical_writeup,
+      attachments: attachments,
       status: data.dig("fields", "status", "name"),
       priority: data.dig("fields", "priority", "name"),
       assignee: data.dig("fields", "assignee", "displayName"),
