@@ -31,8 +31,14 @@ class JiraService
     url = "#{@base_url}/rest/api/3/issue/#{ticket_key}"
     
     # Include attachments and other fields we need
+    fields_list = ["summary", "description", "status", "priority", "assignee", "issuetype", "attachment"]
+    
+    # Add custom fields if configured
+    fields_list << @acceptance_criteria_field if @acceptance_criteria_field.present?
+    fields_list << @technical_writeup_field if @technical_writeup_field.present?
+    
     params = {
-      fields: "summary,description,status,priority,assignee,issuetype,attachment",
+      fields: fields_list.join(","),
       expand: "renderedFields"
     }
     
@@ -96,16 +102,20 @@ class JiraService
     # Try to get acceptance criteria from custom field if configured
     acceptance_criteria = if @acceptance_criteria_field.present?
       field_value = data.dig("fields", @acceptance_criteria_field)
+      Rails.logger.debug "[JiraService] Acceptance criteria field '#{@acceptance_criteria_field}' value: #{field_value.inspect}"
       extract_field_value(field_value)
     else
+      Rails.logger.debug "[JiraService] No acceptance criteria field configured, using parsed sections"
       sections[:acceptance_criteria]
     end
     
     # Try to get technical writeup from custom field if configured
     technical_writeup = if @technical_writeup_field.present?
       field_value = data.dig("fields", @technical_writeup_field)
+      Rails.logger.debug "[JiraService] Technical writeup field '#{@technical_writeup_field}' value: #{field_value.inspect}"
       extract_field_value(field_value)
     else
+      Rails.logger.debug "[JiraService] No technical writeup field configured, using parsed sections"
       sections[:technical_writeup]
     end
     
