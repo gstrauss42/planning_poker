@@ -51,8 +51,8 @@ class EstimationChannel < ApplicationCable::Channel
     begin
       AtomicStateManager.heartbeat(connection.connection_identifier)
       
-      # Send periodic state validation
-      if rand(50) == 0  # Every 50th heartbeat
+      # Send periodic state validation less frequently
+      if rand(100) == 0  # Every 100th heartbeat (reduced from 50th)
         validate_client_state
       end
       

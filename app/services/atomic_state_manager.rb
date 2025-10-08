@@ -334,8 +334,8 @@ class AtomicStateManager
           presence[connection_id][:heartbeat_count] += 1
           save_presence(presence)
           
-          # Cleanup every 20 heartbeats (more frequent)
-          if presence[connection_id][:heartbeat_count] % 20 == 0
+          # Cleanup every 50 heartbeats (less frequent to reduce server load)
+          if presence[connection_id][:heartbeat_count] % 50 == 0
             cleanup_stale_connections
           end
         end
@@ -350,6 +350,17 @@ class AtomicStateManager
     def cleanup_stale_connections
       # Cleanup doesn't need atomic operations - it's just removing stale data
       begin
+        # Rate limiting: only cleanup once per minute per process
+        cleanup_key = "cleanup_last_run_#{Process.pid}"
+        if redis_available?
+          last_cleanup = with_redis { |conn| conn.get(cleanup_key) }
+          if last_cleanup && (Time.current.to_i - last_cleanup.to_i) < 60
+            Rails.logger.debug "[AtomicState] Cleanup rate limited, skipping"
+            return get_presence
+          end
+          with_redis { |conn| conn.setex(cleanup_key, 120, Time.current.to_i) }
+        end
+        
         presence = get_presence
         current_time = Time.current.to_i
         
@@ -389,7 +400,7 @@ class AtomicStateManager
     def connected_count
       # Simple count doesn't need atomic operations
       begin
-        cleanup_stale_connections.count
+        get_presence.count
       rescue StandardError => e
         Rails.logger.error "[AtomicState] Connected count error: #{e.message}"
         0
@@ -411,10 +422,8 @@ class AtomicStateManager
       # Only clean up stale connections if Redis is available
       # When Redis is down, we can't reliably track presence, so don't remove votes
       if redis_available?
-        cleaned_presence = cleanup_stale_connections
-        
-        # Get user names from currently connected users
-        connected_user_names = cleaned_presence.values.map { |data| data[:user_name] }.compact
+        # Get user names from currently connected users (without cleanup)
+        connected_user_names = presence.values.map { |data| data[:user_name] }.compact
         
         # Only count votes from currently connected users
         current_votes = state[:votes].select { |user_name, _| connected_user_names.include?(user_name) }
@@ -428,7 +437,7 @@ class AtomicStateManager
           save_state(state)
         end
         
-        connected_count = cleaned_presence.count
+        connected_count = presence.count
       else
         # Redis unavailable - don't clean up votes, use all votes
         Rails.logger.warn "[AtomicState] Redis unavailable - preserving all votes in broadcast state"
@@ -448,7 +457,7 @@ class AtomicStateManager
         voted_count: state[:votes].count,
         version: state[:version],
         last_updated: state[:last_updated],
-        session_health: calculate_session_health(state, redis_available? ? cleaned_presence : presence)
+        session_health: calculate_session_health(state, redis_available? ? presence : presence)
       }
     end
 
@@ -635,6 +644,26 @@ class AtomicStateManager
       begin
         broadcast_state = get_broadcast_state
         
+        # Check if state has actually changed to avoid unnecessary broadcasts
+        last_broadcast_key = "last_broadcast_state"
+        last_broadcast_state = nil
+        
+        if redis_available?
+          last_broadcast_state = with_redis { |conn| conn.get(last_broadcast_key) }
+        end
+        
+        # Only broadcast if state has actually changed
+        current_state_hash = Digest::MD5.hexdigest(broadcast_state.to_json)
+        if last_broadcast_state == current_state_hash
+          Rails.logger.debug "[AtomicState] State unchanged, skipping broadcast for #{action}"
+          return
+        end
+        
+        # Store current state hash for comparison
+        if redis_available?
+          with_redis { |conn| conn.setex(last_broadcast_key, 300, current_state_hash) } # 5 minute expiry
+        end
+        
         # Send multiple broadcasts with slight delays to ensure delivery
         broadcast_message = {
           action: "sync_state",
@@ -659,8 +688,7 @@ class AtomicStateManager
         Rails.logger.info "[AtomicState] Broadcast sent for #{action} (primary + retry)"
         
       rescue StandardError => e
-        Rails.logger.error "[AtomicState] Failed to broadcast state change: #{e.message}"
-        # Don't raise here - state is saved, broadcast failure shouldn't fail the operation
+        Rails.logger.error "[AtomicState] Broadcast error for #{action}: #{e.message}"
       end
     end
 

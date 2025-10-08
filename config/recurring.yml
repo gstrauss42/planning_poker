@@ -17,10 +17,10 @@ production:
   session_health_monitor:
     class: SessionHealthMonitorJob
     queue: default
-    schedule: every 30 seconds
+    schedule: every 5 minutes
 
 development:
   session_health_monitor:
     class: SessionHealthMonitorJob
     queue: default
-    schedule: every 30 seconds
+    schedule: every 2 minutes

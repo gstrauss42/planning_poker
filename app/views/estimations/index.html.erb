@@ -872,7 +872,7 @@
             console.error(`[Heartbeat] Error: ${error.message}`);
           }
         }
-      }, 10000); // Every 10 seconds
+      }, 30000); // Every 30 seconds (reduced from 10s)
     }
 
     function startStateValidation() {
@@ -884,7 +884,7 @@
             console.error(`[StateValidation] Error: ${error.message}`);
           }
         }
-      }, 30000); // Every 30 seconds
+      }, 120000); // Every 2 minutes (reduced from 30s)
     }
 
     function startHealthChecks() {
@@ -907,7 +907,7 @@
         } catch (error) {
           console.error(`[HealthCheck] Error: ${error.message}`);
         }
-      }, 60000); // Every minute
+      }, 300000); // Every 5 minutes (reduced from 1 minute)
     }
 
     function attemptReconnection() {
