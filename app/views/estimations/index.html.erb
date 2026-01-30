@@ -445,6 +445,28 @@
     .controls button {
       flex: 1;
     }
+    button.reveal,
+    button.clear {
+      position: relative;
+      overflow: hidden;
+    }
+    button.reveal::before,
+    button.clear::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      width: 0%;
+      background: rgba(255, 255, 255, 0.3);
+      transition: none;
+      pointer-events: none;
+    }
+    button.reveal.holding::before,
+    button.clear.holding::before {
+      width: 100%;
+      transition: width 0.75s linear;
+    }
     button.reveal {
       background: #2196F3;
     }
@@ -455,6 +477,10 @@
       background: #90caf9;
       cursor: not-allowed;
       opacity: 0.6;
+    }
+    button.reveal:disabled::before,
+    button.clear:disabled::before {
+      display: none;
     }
     button.clear {
       background: #f44336;
@@ -717,8 +743,8 @@
     </div>
 
     <div class="controls">
-      <button id="revealBtn" class="reveal" disabled>Reveal</button>
-      <button id="clearBtn" class="clear" disabled>Clear Votes</button>
+      <button id="revealBtn" class="reveal" disabled title="Hold to reveal">Reveal</button>
+      <button id="clearBtn" class="clear" disabled title="Hold to clear">Clear Votes</button>
     </div>
 
     <div class="participants">
@@ -1435,8 +1461,12 @@
       }
     });
 
-    document.getElementById("revealBtn").addEventListener("click", async () => {
-      // Button should be disabled if no votes
+    // Hold-to-reveal functionality (0.5 second hold required)
+    const revealBtn = document.getElementById("revealBtn");
+    let revealHoldTimer = null;
+    const HOLD_DURATION = 750; // milliseconds (0.75 seconds)
+
+    async function executeReveal() {
       if (Object.keys(state.votes).length === 0) {
         return;
       }
@@ -1483,15 +1513,51 @@
       } finally {
         state.pendingOperations.delete('reveal');
       }
+    }
+
+    function startRevealHold(e) {
+      if (revealBtn.disabled) return;
+      e.preventDefault();
+      
+      // Add holding class to start the CSS animation
+      revealBtn.classList.add('holding');
+      
+      // Set timer to execute reveal after hold duration
+      revealHoldTimer = setTimeout(() => {
+        revealBtn.classList.remove('holding');
+        executeReveal();
+      }, HOLD_DURATION);
+    }
+
+    function cancelRevealHold() {
+      if (revealHoldTimer) {
+        clearTimeout(revealHoldTimer);
+        revealHoldTimer = null;
+      }
+      revealBtn.classList.remove('holding');
+    }
+
+    // Mouse events
+    revealBtn.addEventListener("mousedown", startRevealHold);
+    revealBtn.addEventListener("mouseup", cancelRevealHold);
+    revealBtn.addEventListener("mouseleave", cancelRevealHold);
+    
+    // Touch events for mobile
+    revealBtn.addEventListener("touchstart", startRevealHold);
+    revealBtn.addEventListener("touchend", cancelRevealHold);
+    revealBtn.addEventListener("touchcancel", cancelRevealHold);
+    
+    // Prevent click from firing after hold completes
+    revealBtn.addEventListener("click", (e) => {
+      e.preventDefault();
     });
 
-    document.getElementById("clearBtn").addEventListener("click", async () => {
-      // Button should be disabled if no votes
-      if (Object.keys(state.votes).length === 0) {
-        return;
-      }
+    // Hold-to-clear functionality (1 second hold required)
+    const clearBtn = document.getElementById("clearBtn");
+    let clearHoldTimer = null;
 
-      if (!confirm("Clear all votes?")) {
+    async function executeClear() {
+      if (Object.keys(state.votes).length === 0) {
         return;
       }
 
@@ -1549,6 +1615,41 @@
       } finally {
         state.pendingOperations.delete('clear');
       }
+    }
+
+    function startClearHold(e) {
+      if (clearBtn.disabled) return;
+      e.preventDefault();
+      
+      clearBtn.classList.add('holding');
+      
+      clearHoldTimer = setTimeout(() => {
+        clearBtn.classList.remove('holding');
+        executeClear();
+      }, HOLD_DURATION);
+    }
+
+    function cancelClearHold() {
+      if (clearHoldTimer) {
+        clearTimeout(clearHoldTimer);
+        clearHoldTimer = null;
+      }
+      clearBtn.classList.remove('holding');
+    }
+
+    // Mouse events
+    clearBtn.addEventListener("mousedown", startClearHold);
+    clearBtn.addEventListener("mouseup", cancelClearHold);
+    clearBtn.addEventListener("mouseleave", cancelClearHold);
+    
+    // Touch events for mobile
+    clearBtn.addEventListener("touchstart", startClearHold);
+    clearBtn.addEventListener("touchend", cancelClearHold);
+    clearBtn.addEventListener("touchcancel", cancelClearHold);
+    
+    // Prevent click from firing after hold completes
+    clearBtn.addEventListener("click", (e) => {
+      e.preventDefault();
     });
 
     // Initialize application with cleanup
