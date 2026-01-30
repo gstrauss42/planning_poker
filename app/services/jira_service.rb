@@ -139,7 +139,6 @@ class JiraService
     # Try to use JIRA's pre-rendered HTML first (has working image URLs)
     rendered_description = data.dig("renderedFields", "description")
     if rendered_description.present?
-      Rails.logger.debug "[JIRA] Using renderedFields for description"
       return sanitize_jira_html(rendered_description)
     end
     
@@ -173,10 +172,8 @@ class JiraService
     
     # Match JIRA attachment URLs and rewrite to use our proxy
     # Pattern: /rest/api/3/attachment/content/12345 or /secure/attachment/12345/filename.png
-    html.gsub(%r{(?:https?://[^/]+)?/(?:rest/api/3/attachment/content|secure/attachment)/(\d+)(?:/[^"'>\s]*)?}i) do |match|
-      attachment_id = $1
-      Rails.logger.debug "[JIRA] Rewriting image URL: #{match} -> /jira_images/#{attachment_id}"
-      "/jira_images/#{attachment_id}"
+    html.gsub(%r{(?:https?://[^/]+)?/(?:rest/api/3/attachment/content|secure/attachment)/(\d+)(?:/[^"'>\s]*)?}i) do |_match|
+      "/jira_images/#{$1}"
     end
   end
 
@@ -192,7 +189,6 @@ class JiraService
         lookup[att[:filename]] = att[:id]
       end
     end
-    Rails.logger.debug "[JIRA] Attachment lookup: #{lookup.keys.count} entries"
     lookup
   end
 
@@ -200,17 +196,12 @@ class JiraService
     attachments = data.dig("fields", "attachment") || []
     
     attachments.map do |attachment|
-      # Convert relative URL to absolute URL
       content_url = attachment["content"]
-      Rails.logger.debug "[JIRA] Original attachment URL: #{content_url}"
-      Rails.logger.debug "[JIRA] Full attachment: #{attachment.keys.inspect}"
-      Rails.logger.debug "[JIRA] Attachment data: id=#{attachment['id']}, filename=#{attachment['filename']}, mediaApiFileId=#{attachment['mediaApiFileId']}"
       
+      # Convert relative URL to absolute URL if needed
       if content_url && !content_url.start_with?("http")
-        # If it's a relative URL, make it absolute using the JIRA base URL
         content_url = "#{@base_url}#{content_url}" unless content_url.start_with?("/")
         content_url = "#{@base_url}/#{content_url}" if content_url.start_with?("/")
-        Rails.logger.debug "[JIRA] Converted to absolute URL: #{content_url}"
       end
       
       {
@@ -320,8 +311,8 @@ class JiraService
     when "codeBlock"
       content = node["content"] || []
       code = content.map { |n| extract_html_from_node(n) }.join
-      language = node.dig("attrs", "language") || ""
-      "<pre><code class='language-#{language}'>#{ActionController::Base.helpers.sanitize(code)}</code></pre>"
+      language = normalize_language(node.dig("attrs", "language"))
+      "<pre class='language-#{language}'><code class='language-#{language}'>#{ActionController::Base.helpers.sanitize(code)}</code></pre>"
       
     when "blockquote"
       content = node["content"] || []
@@ -426,12 +417,8 @@ class JiraService
     # Use .presence to handle empty strings - collection is often "" which is truthy
     file_name = attrs["collection"].presence || attrs["alt"].presence || "attachment"
     
-    # Log all attributes for debugging
-    Rails.logger.debug "[JIRA] Media node attrs: #{attrs.inspect}"
-    
     # Look up numeric ID from UUID if available
     numeric_id = resolve_attachment_id(media_id, file_name)
-    Rails.logger.debug "[JIRA] Media node: type=#{media_type}, id=#{media_id}, resolved_id=#{numeric_id}, filename=#{file_name}"
     
     case media_type
     when "file"
@@ -506,6 +493,32 @@ class JiraService
   def image_url?(url)
     return false if url.blank?
     url.downcase.match?(/\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?|$)/)
+  end
+
+  def normalize_language(lang)
+    return "plaintext" if lang.blank?
+    
+    # Map JIRA language names to Prism.js language names
+    mappings = {
+      "sh" => "bash",
+      "shell" => "bash",
+      "yml" => "yaml",
+      "js" => "javascript",
+      "ts" => "typescript",
+      "py" => "python",
+      "rb" => "ruby",
+      "erb" => "ruby",
+      "html" => "markup",
+      "xml" => "markup",
+      "jsx" => "javascript",
+      "tsx" => "typescript",
+      "dockerfile" => "docker",
+      "c#" => "csharp",
+      "c++" => "cpp"
+    }
+    
+    normalized = lang.downcase.strip
+    mappings[normalized] || normalized
   end
 
   def parse_description_sections(description)
