@@ -134,6 +134,218 @@
       font-family: monospace;
       font-size: 14px;
     }
+    .section-content pre {
+      background: #f5f5f5;
+      padding: 12px;
+      border-radius: 4px;
+      overflow-x: auto;
+      margin: 12px 0;
+    }
+    .section-content pre code {
+      background: none;
+      padding: 0;
+    }
+    .section-content blockquote {
+      border-left: 4px solid #ddd;
+      padding-left: 16px;
+      margin: 12px 0;
+      color: #666;
+      font-style: italic;
+    }
+    .section-content strong {
+      font-weight: 600;
+    }
+    .section-content em {
+      font-style: italic;
+    }
+    .section-content hr {
+      border: none;
+      border-top: 1px solid #ddd;
+      margin: 16px 0;
+    }
+    /* ADF Table Styles */
+    .section-content .adf-table-wrapper {
+      overflow-x: auto;
+      margin: 16px 0;
+      max-width: 100%;
+    }
+    .section-content .adf-table {
+      min-width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    .section-content .adf-table th,
+    .section-content .adf-table td {
+      border: 1px solid #ddd;
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .section-content .adf-table th {
+      background: #f5f5f5;
+      font-weight: 600;
+      color: #333;
+    }
+    .section-content .adf-table tr:nth-child(even) td {
+      background: #fafafa;
+    }
+    .section-content .adf-table tr:hover td {
+      background: #f0f7ff;
+    }
+    /* ADF Panel Styles */
+    .section-content .adf-panel {
+      padding: 12px 16px;
+      margin: 12px 0;
+      border-radius: 4px;
+      border-left: 4px solid;
+    }
+    .section-content .adf-panel p:last-child {
+      margin-bottom: 0;
+    }
+    .section-content .adf-panel-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    .section-content .adf-panel-icon {
+      font-size: 16px;
+    }
+    .section-content .adf-panel-info {
+      background: #e3f2fd;
+      border-left-color: #2196F3;
+    }
+    .section-content .adf-panel-info .adf-panel-header {
+      color: #1565c0;
+    }
+    .section-content .adf-panel-note {
+      background: #f3e5f5;
+      border-left-color: #9c27b0;
+    }
+    .section-content .adf-panel-note .adf-panel-header {
+      color: #7b1fa2;
+    }
+    .section-content .adf-panel-warning {
+      background: #fff3e0;
+      border-left-color: #ff9800;
+    }
+    .section-content .adf-panel-warning .adf-panel-header {
+      color: #e65100;
+    }
+    .section-content .adf-panel-error {
+      background: #ffebee;
+      border-left-color: #f44336;
+    }
+    .section-content .adf-panel-error .adf-panel-header {
+      color: #c62828;
+    }
+    .section-content .adf-panel-success {
+      background: #e8f5e9;
+      border-left-color: #4CAF50;
+    }
+    .section-content .adf-panel-success .adf-panel-header {
+      color: #2e7d32;
+    }
+    /* ADF Mention Styles */
+    .section-content .adf-mention {
+      background: #e3f2fd;
+      color: #1565c0;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-weight: 500;
+    }
+    /* ADF Status Badge Styles */
+    .section-content .adf-status {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .section-content .adf-status-neutral {
+      background: #e0e0e0;
+      color: #616161;
+    }
+    .section-content .adf-status-blue {
+      background: #e3f2fd;
+      color: #1565c0;
+    }
+    .section-content .adf-status-green {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+    .section-content .adf-status-yellow {
+      background: #fff8e1;
+      color: #f57f17;
+    }
+    .section-content .adf-status-red {
+      background: #ffebee;
+      color: #c62828;
+    }
+    .section-content .adf-status-purple {
+      background: #f3e5f5;
+      color: #7b1fa2;
+    }
+    /* ADF Date Styles */
+    .section-content .adf-date {
+      background: #f5f5f5;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 13px;
+      color: #666;
+    }
+    /* ADF Expand/Collapse Styles */
+    .section-content .adf-expand {
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin: 12px 0;
+    }
+    .section-content .adf-expand summary {
+      padding: 10px 14px;
+      background: #f9f9f9;
+      cursor: pointer;
+      font-weight: 500;
+      user-select: none;
+    }
+    .section-content .adf-expand summary:hover {
+      background: #f0f0f0;
+    }
+    .section-content .adf-expand[open] summary {
+      border-bottom: 1px solid #ddd;
+    }
+    .section-content .adf-expand > *:not(summary) {
+      padding: 12px 14px;
+    }
+    /* ADF Media Styles */
+    .section-content .adf-media {
+      margin: 12px 0;
+    }
+    .section-content .adf-media-placeholder {
+      background: #f5f5f5;
+      border: 2px dashed #ddd;
+      border-radius: 4px;
+      padding: 20px;
+      text-align: center;
+      color: #999;
+      font-style: italic;
+    }
+    /* ADF Inline Card (Smart Link) Styles */
+    .section-content .adf-inline-card {
+      background: #f5f5f5;
+      padding: 2px 8px;
+      border-radius: 3px;
+      text-decoration: none;
+      color: #1565c0;
+      font-size: 13px;
+      word-break: break-all;
+    }
+    .section-content .adf-inline-card:hover {
+      background: #e3f2fd;
+      text-decoration: underline;
+    }
     .collapsible-section {
       border: 1px solid #ddd;
       border-radius: 6px;
@@ -164,7 +376,9 @@
       transition: max-height 0.3s ease-out;
     }
     .collapsible-content.expanded {
-      max-height: 100%;
+      max-height: 10000px;
+      overflow-y: auto;
+      transition: max-height 0.5s ease-in;
     }
     .input-section {
       display: flex;
@@ -296,20 +510,48 @@
     .distribution-item {
       display: flex;
       align-items: center;
-      gap: 4px;
-      padding: 6px 12px;
+      gap: 6px;
+      padding: 8px 14px;
       background: white;
-      border-radius: 16px;
+      border-radius: 20px;
       border: 1px solid #dee2e6;
-      font-size: 13px;
+      font-size: 14px;
+      transition: all 0.2s ease;
+    }
+    .distribution-item.winner {
+      background: #e8f5e9;
+      border-color: #4CAF50;
+      box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
     }
     .distribution-value {
-      font-weight: 600;
+      font-weight: 700;
+      font-size: 18px;
       color: #2196F3;
+      min-width: 24px;
+      text-align: center;
+    }
+    .distribution-item.winner .distribution-value {
+      color: #2e7d32;
+    }
+    .distribution-separator {
+      color: #aaa;
+      font-size: 12px;
+    }
+    .distribution-item.winner .distribution-separator {
+      color: #81c784;
     }
     .distribution-count {
-      color: #6c757d;
-      font-size: 12px;
+      color: #666;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .distribution-item.winner .distribution-count {
+      color: #2e7d32;
+      font-weight: 600;
+    }
+    .winner-badge {
+      font-size: 11px;
+      margin-left: 4px;
     }
     .status-indicator {
       position: fixed;
@@ -737,50 +979,29 @@
       // Add attachments section
       if (state.ticketData.attachments && state.ticketData.attachments.length > 0) {
         console.log(`[Render] Rendering attachments:`, state.ticketData.attachments);
-        const imageAttachments = state.ticketData.attachments.filter(att => att.is_image);
-        const otherAttachments = state.ticketData.attachments.filter(att => !att.is_image);
-        console.log(`[Render] Image attachments:`, imageAttachments);
-        console.log(`[Render] Other attachments:`, otherAttachments);
         
         html += `
           <div class="ticket-section-block">
             <div class="section-header">Attachments</div>
             <div class="section-content">
+              <div class="attachments-list">
         `;
         
-        // Display images
-        if (imageAttachments.length > 0) {
-          html += `<div class="media-group">`;
-          imageAttachments.forEach(attachment => {
-            html += `
-              <div class="jira-image-container">
-                <img src="${attachment.proxy_url}" 
-                     alt="${escapeHtml(attachment.filename)}" 
-                     class="jira-image" 
-                     loading="lazy"
-                     title="${escapeHtml(attachment.filename)}" />
-                <div class="image-caption">${escapeHtml(attachment.filename)}</div>
-              </div>
-            `;
-          });
-          html += `</div>`;
-        }
+        // Display all attachments as links (images are shown inline in the description)
+        state.ticketData.attachments.forEach(attachment => {
+          const sizeText = attachment.size ? `(${formatFileSize(attachment.size)})` : '';
+          const icon = attachment.is_image ? '🖼️' : '📎';
+          const url = attachment.proxy_url || attachment.url;
+          html += `
+            <div class="jira-attachment">
+              <a href="${url}" target="_blank" class="attachment-link">
+                ${icon} ${escapeHtml(attachment.filename)} ${sizeText}
+              </a>
+            </div>
+          `;
+        });
         
-        // Display other attachments
-        if (otherAttachments.length > 0) {
-          html += `<div class="attachments-list">`;
-          otherAttachments.forEach(attachment => {
-            const sizeText = attachment.size ? `(${formatFileSize(attachment.size)})` : '';
-            html += `
-              <div class="jira-attachment">
-                <a href="${attachment.url}" target="_blank" class="attachment-link">
-                  📎 ${escapeHtml(attachment.filename)} ${sizeText}
-                </a>
-              </div>
-            `;
-          });
-          html += `</div>`;
-        }
+        html += `</div>`;
         
         html += `
             </div>
@@ -838,12 +1059,20 @@
             <div class="vote-distribution">
               <div class="distribution-header">Vote Distribution</div>
               <div class="distribution-items">
-                ${voteDistribution.map(({value, count}) => `
-                  <div class="distribution-item">
-                    <span class="distribution-value">${escapeHtml(value)}</span>
-                    <span class="distribution-count">${count}</span>
-                  </div>
-                `).join('')}
+                ${(() => {
+                  const maxCount = Math.max(...voteDistribution.map(d => d.count));
+                  const hasMultipleVotes = voteDistribution.length > 1;
+                  return voteDistribution.map(({value, count}) => {
+                    const isWinner = hasMultipleVotes && count === maxCount;
+                    return `
+                      <div class="distribution-item${isWinner ? ' winner' : ''}">
+                        <span class="distribution-value">${escapeHtml(value)}</span>
+                        <span class="distribution-separator">→</span>
+                        <span class="distribution-count">${count} ${count === 1 ? 'vote' : 'votes'}${isWinner ? '<span class="winner-badge">🏆</span>' : ''}</span>
+                      </div>
+                    `;
+                  }).join('');
+                })()}
               </div>
             </div>
           `;

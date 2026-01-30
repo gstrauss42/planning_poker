@@ -91,6 +91,10 @@ class JiraService
   def parse_ticket_response(response)
     data = response.parsed_response
     
+    # Get attachments first so we can build UUID -> ID lookup for inline images
+    attachments = extract_attachments(data)
+    @attachment_lookup = build_attachment_lookup(attachments)
+    
     # Get description (might be in different formats)
     raw_description = extract_description(data)
     
@@ -113,9 +117,6 @@ class JiraService
       sections[:technical_writeup]
     end
     
-    # Get attachments
-    attachments = extract_attachments(data)
-    
     {
       key: data["key"],
       summary: data.dig("fields", "summary"),
@@ -135,8 +136,64 @@ class JiraService
   end
 
   def extract_description(data)
+    # Try to use JIRA's pre-rendered HTML first (has working image URLs)
+    rendered_description = data.dig("renderedFields", "description")
+    if rendered_description.present?
+      Rails.logger.debug "[JIRA] Using renderedFields for description"
+      return sanitize_jira_html(rendered_description)
+    end
+    
+    # Fall back to parsing ADF ourselves
     description_field = data.dig("fields", "description")
     extract_field_value(description_field)
+  end
+
+  def sanitize_jira_html(html)
+    return nil if html.blank?
+    
+    # Rewrite JIRA image URLs to use our proxy
+    processed_html = rewrite_jira_image_urls(html)
+    
+    # Sanitize but allow images, links, and common HTML
+    allowed_tags = %w[p h1 h2 h3 h4 h5 h6 br hr ul ol li a img strong em code pre blockquote table tr td th thead tbody div span]
+    allowed_attributes = {
+      'a' => ['href', 'target', 'rel'],
+      'img' => ['src', 'alt', 'class', 'style', 'width', 'height', 'loading'],
+      'td' => ['colspan', 'rowspan'],
+      'th' => ['colspan', 'rowspan'],
+      'div' => ['class'],
+      'span' => ['class', 'style']
+    }
+    
+    ActionController::Base.helpers.sanitize(processed_html, tags: allowed_tags, attributes: allowed_attributes)
+  end
+
+  def rewrite_jira_image_urls(html)
+    return html if html.blank?
+    
+    # Match JIRA attachment URLs and rewrite to use our proxy
+    # Pattern: /rest/api/3/attachment/content/12345 or /secure/attachment/12345/filename.png
+    html.gsub(%r{(?:https?://[^/]+)?/(?:rest/api/3/attachment/content|secure/attachment)/(\d+)(?:/[^"'>\s]*)?}i) do |match|
+      attachment_id = $1
+      Rails.logger.debug "[JIRA] Rewriting image URL: #{match} -> /jira_images/#{attachment_id}"
+      "/jira_images/#{attachment_id}"
+    end
+  end
+
+  def build_attachment_lookup(attachments)
+    lookup = {}
+    attachments.each do |att|
+      # Map UUID (mediaApiFileId) to numeric ID
+      if att[:media_api_file_id].present?
+        lookup[att[:media_api_file_id]] = att[:id]
+      end
+      # Also map by filename as fallback
+      if att[:filename].present?
+        lookup[att[:filename]] = att[:id]
+      end
+    end
+    Rails.logger.debug "[JIRA] Attachment lookup: #{lookup.keys.count} entries"
+    lookup
   end
 
   def extract_attachments(data)
@@ -146,6 +203,8 @@ class JiraService
       # Convert relative URL to absolute URL
       content_url = attachment["content"]
       Rails.logger.debug "[JIRA] Original attachment URL: #{content_url}"
+      Rails.logger.debug "[JIRA] Full attachment: #{attachment.keys.inspect}"
+      Rails.logger.debug "[JIRA] Attachment data: id=#{attachment['id']}, filename=#{attachment['filename']}, mediaApiFileId=#{attachment['mediaApiFileId']}"
       
       if content_url && !content_url.start_with?("http")
         # If it's a relative URL, make it absolute using the JIRA base URL
@@ -156,6 +215,7 @@ class JiraService
       
       {
         id: attachment["id"],
+        media_api_file_id: attachment["mediaApiFileId"],  # UUID used in ADF media nodes
         filename: attachment["filename"],
         mime_type: attachment["mimeType"],
         size: attachment["size"],
@@ -225,6 +285,19 @@ class JiraService
           text = "<u>#{text}</u>"
         when "strike"
           text = "<s>#{text}</s>"
+        when "link"
+          href = ActionController::Base.helpers.sanitize(mark.dig("attrs", "href") || "")
+          text = "<a href='#{href}' target='_blank' rel='noopener'>#{text}</a>"
+        when "textColor"
+          color = ActionController::Base.helpers.sanitize(mark.dig("attrs", "color") || "")
+          text = "<span style='color:#{color}'>#{text}</span>"
+        when "backgroundColor"
+          color = ActionController::Base.helpers.sanitize(mark.dig("attrs", "color") || "")
+          text = "<span style='background-color:#{color}'>#{text}</span>"
+        when "subsup"
+          type = mark.dig("attrs", "type")
+          tag = type == "sub" ? "sub" : "sup"
+          text = "<#{tag}>#{text}</#{tag}>"
         end
       end
       text
@@ -260,7 +333,7 @@ class JiraService
       
     when "rule"
       "<hr>"
-      
+
     when "media"
       # Handle JIRA images and media
       extract_media_html(node)
@@ -277,6 +350,68 @@ class JiraService
       media_html = content.map { |n| extract_html_from_node(n) }.join
       "<div class='media-single'>#{media_html}</div>"
       
+    # Table support - wrap in scrollable container
+    when "table"
+      rows = node["content"] || []
+      rows_html = rows.map { |row| extract_html_from_node(row) }.join
+      "<div class='adf-table-wrapper'><table class='adf-table'>#{rows_html}</table></div>"
+
+    when "tableRow"
+      cells = node["content"] || []
+      cells_html = cells.map { |cell| extract_html_from_node(cell) }.join
+      "<tr>#{cells_html}</tr>"
+
+    when "tableHeader"
+      attrs = build_cell_attrs(node)
+      content = node["content"] || []
+      content_html = content.map { |n| extract_html_from_node(n) }.join
+      "<th#{attrs}>#{content_html}</th>"
+
+    when "tableCell"
+      attrs = build_cell_attrs(node)
+      content = node["content"] || []
+      content_html = content.map { |n| extract_html_from_node(n) }.join
+      "<td#{attrs}>#{content_html}</td>"
+
+    # Panel support
+    when "panel"
+      panel_type = node.dig("attrs", "panelType") || "info"
+      content = node["content"] || []
+      content_html = content.map { |n| extract_html_from_node(n) }.join
+      panel_header = panel_header_for_type(panel_type)
+      "<div class='adf-panel adf-panel-#{panel_type}'>#{panel_header}#{content_html}</div>"
+
+    # Inline nodes
+    when "mention"
+      name = node.dig("attrs", "text") || "@user"
+      "<span class='adf-mention'>#{ActionController::Base.helpers.sanitize(name)}</span>"
+
+    when "emoji"
+      short_name = node.dig("attrs", "shortName") || ""
+      text = node.dig("attrs", "text") || short_name
+      "<span class='adf-emoji'>#{ActionController::Base.helpers.sanitize(text)}</span>"
+
+    when "status"
+      text = node.dig("attrs", "text") || ""
+      color = node.dig("attrs", "color") || "neutral"
+      "<span class='adf-status adf-status-#{color}'>#{ActionController::Base.helpers.sanitize(text)}</span>"
+
+    when "date"
+      timestamp = node.dig("attrs", "timestamp")
+      formatted = timestamp ? Time.at(timestamp.to_i / 1000).strftime("%b %d, %Y") : ""
+      "<time class='adf-date' datetime='#{timestamp}'>#{formatted}</time>"
+
+    when "inlineCard"
+      url = node.dig("attrs", "url") || ""
+      "<a class='adf-inline-card' href='#{ActionController::Base.helpers.sanitize(url)}' target='_blank' rel='noopener'>#{ActionController::Base.helpers.sanitize(url)}</a>"
+
+    # Expand/collapse support
+    when "expand", "nestedExpand"
+      title = node.dig("attrs", "title") || "Details"
+      content = node["content"] || []
+      content_html = content.map { |n| extract_html_from_node(n) }.join
+      "<details class='adf-expand'><summary>#{ActionController::Base.helpers.sanitize(title)}</summary>#{content_html}</details>"
+
     else
       # Recursively handle nested content for unknown types
       content = node["content"] || []
@@ -288,39 +423,79 @@ class JiraService
     attrs = node["attrs"] || {}
     media_type = attrs["type"]
     media_id = attrs["id"]
+    # Use .presence to handle empty strings - collection is often "" which is truthy
+    file_name = attrs["collection"].presence || attrs["alt"].presence || "attachment"
+    
+    # Log all attributes for debugging
+    Rails.logger.debug "[JIRA] Media node attrs: #{attrs.inspect}"
+    
+    # Look up numeric ID from UUID if available
+    numeric_id = resolve_attachment_id(media_id, file_name)
+    Rails.logger.debug "[JIRA] Media node: type=#{media_type}, id=#{media_id}, resolved_id=#{numeric_id}, filename=#{file_name}"
     
     case media_type
     when "file"
-      # Handle file attachments
-      file_name = attrs["collection"] || "attachment"
-      file_url = "#{@base_url}/secure/attachment/#{media_id}/#{file_name}"
-      
-      # Check if it's an image by file extension
-      if image_file?(file_name)
-        alt_text = attrs["alt"] || "JIRA Image"
-        "<div class='jira-image-container'><img src='#{file_url}' alt='#{alt_text}' class='jira-image' loading='lazy' /></div>"
+      # Use proxy URL with numeric ID for authenticated JIRA images
+      if numeric_id.present?
+        proxy_url = "/jira_images/#{numeric_id}"
+        
+        # Check if it's an image by file extension
+        if image_file?(file_name)
+          alt_text = ActionController::Base.helpers.sanitize(attrs["alt"] || file_name)
+          "<div class='jira-image-container'><img src='#{proxy_url}' alt='#{alt_text}' class='jira-image' loading='lazy' /><div class='image-caption'>#{alt_text}</div></div>"
+        else
+          # Non-image file - still use proxy for download
+          "<div class='jira-attachment'><a href='#{proxy_url}' target='_blank' class='attachment-link'>📎 #{ActionController::Base.helpers.sanitize(file_name)}</a></div>"
+        end
       else
-        # Non-image file
-        "<div class='jira-attachment'><a href='#{file_url}' target='_blank' class='attachment-link'>📎 #{file_name}</a></div>"
+        "<div class='jira-media-unknown'>[Attachment: #{ActionController::Base.helpers.sanitize(file_name)}]</div>"
       end
       
     when "external"
-      # Handle external media URLs
+      # Handle external media URLs (no auth needed)
       url = attrs["url"]
       if url && image_url?(url)
-        alt_text = attrs["alt"] || "External Image"
+        alt_text = ActionController::Base.helpers.sanitize(attrs["alt"] || "External Image")
         "<div class='jira-image-container'><img src='#{url}' alt='#{alt_text}' class='jira-image' loading='lazy' /></div>"
       else
-        "<div class='jira-external-media'><a href='#{url}' target='_blank'>🔗 External Media</a></div>"
+        "<div class='jira-external-media'><a href='#{ActionController::Base.helpers.sanitize(url)}' target='_blank'>🔗 External Media</a></div>"
       end
       
     else
-      # Fallback for unknown media types
-      "<div class='jira-media-unknown'>[Media: #{media_type}]</div>"
+      # Fallback for unknown media types - try to resolve ID and use proxy
+      if numeric_id.present?
+        proxy_url = "/jira_images/#{numeric_id}"
+        "<div class='jira-image-container'><img src='#{proxy_url}' alt='Media' class='jira-image' loading='lazy' /></div>"
+      elsif media_id.present?
+        # Last resort: try the original ID (might be numeric already)
+        proxy_url = "/jira_images/#{media_id}"
+        "<div class='jira-image-container'><img src='#{proxy_url}' alt='Media' class='jira-image' loading='lazy' onerror=\"this.parentElement.innerHTML='[Image not found]'\"/></div>"
+      else
+        "<div class='jira-media-unknown'>[Media: #{media_type || 'unknown'}]</div>"
+      end
     end
   rescue StandardError => e
     Rails.logger.error "Error extracting media HTML: #{e.message}"
     "<div class='jira-media-error'>[Error loading media]</div>"
+  end
+
+  def resolve_attachment_id(media_id, file_name)
+    return nil if media_id.blank? && file_name.blank?
+    return media_id if media_id.present? && media_id.match?(/^\d+$/)  # Already numeric
+    
+    # Try to look up by UUID
+    if @attachment_lookup && media_id.present?
+      resolved = @attachment_lookup[media_id]
+      return resolved if resolved.present?
+    end
+    
+    # Try to look up by filename
+    if @attachment_lookup && file_name.present?
+      resolved = @attachment_lookup[file_name]
+      return resolved if resolved.present?
+    end
+    
+    nil
   end
 
   def image_file?(filename)
@@ -372,6 +547,27 @@ class JiraService
     end
     
     sections
+  end
+
+  def panel_header_for_type(panel_type)
+    icons_and_labels = {
+      "info" => { icon: "ℹ️", label: "Info" },
+      "note" => { icon: "📝", label: "Note" },
+      "warning" => { icon: "⚠️", label: "Warning" },
+      "error" => { icon: "❌", label: "Error" },
+      "success" => { icon: "✅", label: "Success" }
+    }
+    config = icons_and_labels[panel_type] || icons_and_labels["info"]
+    "<div class='adf-panel-header'><span class='adf-panel-icon'>#{config[:icon]}</span><span>#{config[:label]}</span></div>"
+  end
+
+  def build_cell_attrs(node)
+    attrs = []
+    colspan = node.dig("attrs", "colspan")
+    rowspan = node.dig("attrs", "rowspan")
+    attrs << "colspan='#{colspan}'" if colspan && colspan > 1
+    attrs << "rowspan='#{rowspan}'" if rowspan && rowspan > 1
+    attrs.empty? ? "" : " #{attrs.join(' ')}"
   end
 
   def handle_error_response(response)

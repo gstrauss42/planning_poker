@@ -203,24 +203,42 @@ class EstimationsController < ApplicationController
         return
       end
 
-      # Fetch image from JIRA with proper headers and authentication
-      image_url = "#{jira_base_url}/rest/api/3/attachment/content/#{attachment_id}"
+      auth_header = "Basic #{Base64.strict_encode64("#{jira_email}:#{jira_api_token}")}"
       
+      # Try attachment API first (for numeric IDs)
+      image_url = "#{jira_base_url}/rest/api/3/attachment/content/#{attachment_id}"
       Rails.logger.debug "[Controller] Proxying JIRA image: #{image_url}"
       
       response = HTTParty.get(
         image_url,
         headers: {
-          'Authorization' => "Basic #{Base64.strict_encode64("#{jira_email}:#{jira_api_token}")}",
-          'Accept' => '*/*',  # Accept any content type
+          'Authorization' => auth_header,
+          'Accept' => '*/*',
           'User-Agent' => 'PlanningPoker/1.0'
         },
-        follow_redirects: true,  # Important! Jira often redirects to CDN URLs
+        follow_redirects: true,
         timeout: 10
       )
       
+      # If attachment API fails and ID looks like a UUID, try media API
+      if !response.success? && attachment_id.match?(/^[0-9a-f-]{36}$/i)
+        Rails.logger.debug "[Controller] Attachment API failed, trying Media API for UUID: #{attachment_id}"
+        
+        # Try the secure/attachment path with filename lookup
+        media_url = "#{jira_base_url}/secure/attachment/#{attachment_id}"
+        response = HTTParty.get(
+          media_url,
+          headers: {
+            'Authorization' => auth_header,
+            'Accept' => '*/*',
+            'User-Agent' => 'PlanningPoker/1.0'
+          },
+          follow_redirects: true,
+          timeout: 10
+        )
+      end
+      
       if response.success?
-        # Return image to client with proper headers
         send_data response.body, 
                   type: response.headers['content-type'] || 'image/png', 
                   disposition: 'inline'
