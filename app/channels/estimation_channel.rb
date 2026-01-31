@@ -2,64 +2,188 @@ class EstimationChannel < ApplicationCable::Channel
   def subscribed
     stream_from "estimation_session"
     
-    # Track this connection
-    EstimationSessionStore.add_connection(connection_identifier)
+    Rails.logger.info "[Channel] Client subscribed: #{connection.connection_identifier}"
     
-    # Send current session state to the newly connected client
-    transmit_current_state
+    begin
+      # Track connection atomically
+      Rails.logger.info "[Channel] Adding connection to state manager"
+      AtomicStateManager.add_connection(connection.connection_identifier)
+      
+      # Send current state to THIS client only with retry mechanism
+      Rails.logger.info "[Channel] Sending initial state to client"
+      send_state_with_retry
+      
+      # Broadcast updated presence to ALL clients
+      Rails.logger.info "[Channel] Broadcasting presence update"
+      broadcast_presence
+      
+    rescue AtomicStateManager::StateError => e
+      Rails.logger.error "[Channel] State error during subscription: #{e.message}"
+      transmit_error("Failed to join session. Please refresh the page.")
+    rescue StandardError => e
+      Rails.logger.error "[Channel] Unexpected error during subscription: #{e.message}"
+      Rails.logger.error "[Channel] Error backtrace: #{e.backtrace.first(3).join(', ')}"
+      transmit_error("Connection error. Please refresh the page.")
+    end
   end
 
   def unsubscribed
-    # Remove this connection
-    EstimationSessionStore.remove_connection(connection_identifier)
+    Rails.logger.info "[Channel] Client unsubscribed: #{connection.connection_identifier}"
+    
+    begin
+      # Remove connection atomically
+      AtomicStateManager.remove_connection(connection.connection_identifier)
+      
+      # Force cleanup and broadcast updated presence
+      AtomicStateManager.cleanup_stale_connections
+      broadcast_presence
+      
+      Rails.logger.info "[Channel] Connection cleanup completed for: #{connection.connection_identifier}"
+      
+    rescue AtomicStateManager::StateError => e
+      Rails.logger.error "[Channel] State error during unsubscription: #{e.message}"
+    rescue StandardError => e
+      Rails.logger.error "[Channel] Unexpected error during unsubscription: #{e.message}"
+    end
   end
 
   def heartbeat
-    # Update this connection's last seen time
-    EstimationSessionStore.heartbeat(connection_identifier)
-  end
-
-  private
-
-  def connection_identifier
-    # Use a unique identifier for this connection
-    connection.connection_identifier
-  end
-
-  def transmit_current_state
-    state = EstimationSessionStore.get_state
-    
-    # Send ticket data if exists
-    if state[:ticket_data].present? || state[:ticket_title].present?
-      transmit({
-        action: "set_ticket",
-        ticket_title: state[:ticket_title],
-        ticket_data: state[:ticket_data]
-      })
+    begin
+      AtomicStateManager.heartbeat(connection.connection_identifier)
+      
+      # Send periodic state validation less frequently
+      if rand(100) == 0  # Every 100th heartbeat (reduced from 50th)
+        validate_client_state
+      end
+      
+    rescue AtomicStateManager::StateError => e
+      Rails.logger.error "[Channel] State error during heartbeat: #{e.message}"
+      transmit_error("Session state error. Please refresh.")
+    rescue StandardError => e
+      Rails.logger.error "[Channel] Unexpected error during heartbeat: #{e.message}"
     end
+  end
+
+  def request_state_sync
+    begin
+      # Server-side rate limiting to prevent loops
+      client_id = connection.connection_identifier
+      now = Time.current.to_i
+      
+      # Check if this client has requested sync too recently
+      last_sync_key = "last_sync_#{client_id}"
+      last_sync = Rails.cache.read(last_sync_key)
+      
+      if last_sync && (now - last_sync) < 2
+        Rails.logger.warn "[Channel] Rate limiting sync request from #{client_id} - too soon since last request"
+        return
+      end
+      
+      # Circuit breaker: track consecutive rapid requests
+      rapid_requests_key = "rapid_requests_#{client_id}"
+      rapid_requests = Rails.cache.read(rapid_requests_key) || 0
+      
+      if rapid_requests > 10
+        Rails.logger.error "[Channel] Circuit breaker triggered for #{client_id} - too many rapid requests (#{rapid_requests})"
+        transmit_error("Too many sync requests. Please refresh the page.")
+        return
+      end
+      
+      # Increment rapid request counter if this is a rapid request
+      if last_sync && (now - last_sync) < 5
+        rapid_requests += 1
+        Rails.cache.write(rapid_requests_key, rapid_requests, expires_in: 30.seconds)
+      else
+        # Reset counter if enough time has passed
+        Rails.cache.delete(rapid_requests_key)
+        rapid_requests = 0
+      end
+      
+      # Store this sync request time
+      Rails.cache.write(last_sync_key, now, expires_in: 10.seconds)
+      
+      Rails.logger.info "[Channel] Processing state sync request from #{client_id} (rapid_requests: #{rapid_requests})"
+      send_state_with_retry
+    rescue StandardError => e
+      Rails.logger.error "[Channel] Error during state sync request: #{e.message}"
+      transmit_error("Failed to sync state. Please refresh.")
+    end
+  end
+  
+  private
+  
+  def send_state_with_retry
+    retries = 0
+    max_retries = 3
     
-    # Send all votes
-    if state[:votes].present?
-      state[:votes].each do |user_name, points|
-        transmit({
-          action: "submit",
-          user_name: user_name,
-          points: points
-        })
+    begin
+      Rails.logger.info "[Channel] Getting broadcast state for client #{connection.connection_identifier}"
+      state = AtomicStateManager.get_broadcast_state
+      Rails.logger.info "[Channel] State retrieved: version #{state[:version]}, votes: #{state[:votes]&.count || 0}"
+      
+      transmit_message = {
+        action: "sync_state",
+        state: state,
+        timestamp: Time.current.to_i,
+        retry_count: retries
+      }
+      
+      Rails.logger.info "[Channel] Transmitting state to client #{connection.connection_identifier}"
+      transmit(transmit_message)
+      
+      Rails.logger.info "[Channel] State sent to #{connection.connection_identifier}, version: #{state[:version]}"
+      
+    rescue StandardError => e
+      retries += 1
+      Rails.logger.error "[Channel] State send failed for client #{connection.connection_identifier}: #{e.message}"
+      if retries < max_retries
+        Rails.logger.warn "[Channel] State send failed, retry #{retries}/#{max_retries}: #{e.message}"
+        sleep(0.1 * retries)
+        retry
+      else
+        Rails.logger.error "[Channel] Max retries exceeded for state send: #{e.message}"
+        raise e
       end
     end
-    
-    # Send revealed state if needed
-    if state[:revealed]
-      transmit({
-        action: "reveal"
-      })
+  end
+  
+  def broadcast_presence
+    begin
+      presence_data = {
+        action: "presence_update",
+        connected_count: AtomicStateManager.connected_count,
+        voted_count: AtomicStateManager.voted_count,
+        timestamp: Time.current.to_i
+      }
+      
+      ActionCable.server.broadcast("estimation_session", presence_data)
+      
+    rescue StandardError => e
+      Rails.logger.error "[Channel] Error broadcasting presence: #{e.message}"
     end
+  end
 
-    # Send presence count
+  def validate_client_state
+    begin
+      issues = AtomicStateManager.validate_state_integrity
+      if issues.any?
+        Rails.logger.warn "[Channel] State integrity issues detected: #{issues.join(', ')}"
+        transmit({
+          action: "state_warning",
+          issues: issues,
+          timestamp: Time.current.to_i
+        })
+      end
+    rescue StandardError => e
+      Rails.logger.error "[Channel] Error validating state: #{e.message}"
+    end
+  end
+
+  def transmit_error(message)
     transmit({
-      action: "presence_update",
-      connected_count: EstimationSessionStore.connected_count
+      action: "error",
+      message: message,
+      timestamp: Time.current.to_i
     })
   end
 end

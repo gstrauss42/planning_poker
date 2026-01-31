@@ -5,6 +5,21 @@
   <%= csrf_meta_tags %>
   <%= csp_meta_tag %>
   <%= javascript_importmap_tags %>
+  <!-- Prism.js for syntax highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <!-- Common language support -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-ruby.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-java.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-yaml.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-css.min.js"></script>
   <style>
     * {
       margin: 0;
@@ -58,6 +73,7 @@
       border-radius: 8px;
       padding: 20px;
       margin-top: 15px;
+      min-height: 100px;
     }
     .ticket-display.empty {
       text-align: center;
@@ -100,9 +116,6 @@
     .ticket-section-block {
       margin-bottom: 25px;
     }
-    .ticket-section-block:last-child {
-      margin-bottom: 0;
-    }
     .section-header {
       font-size: 16px;
       font-weight: 600;
@@ -116,20 +129,12 @@
       line-height: 1.6;
       font-size: 15px;
     }
-    /* Styling for HTML content from JIRA */
-    .section-content h1, .section-content h2, .section-content h3,
-    .section-content h4, .section-content h5, .section-content h6 {
+    .section-content h1, .section-content h2, .section-content h3 {
       margin-top: 16px;
       margin-bottom: 8px;
       font-weight: 600;
       color: #333;
     }
-    .section-content h1 { font-size: 24px; }
-    .section-content h2 { font-size: 20px; }
-    .section-content h3 { font-size: 18px; }
-    .section-content h4 { font-size: 16px; }
-    .section-content h5 { font-size: 14px; }
-    .section-content h6 { font-size: 13px; }
     .section-content p {
       margin-bottom: 12px;
     }
@@ -137,32 +142,28 @@
       margin: 12px 0;
       padding-left: 28px;
     }
-    .section-content li {
-      margin-bottom: 6px;
-    }
-    .section-content ul {
-      list-style-type: disc;
-    }
-    .section-content ol {
-      list-style-type: decimal;
-    }
     .section-content code {
       background: #f5f5f5;
       padding: 2px 6px;
       border-radius: 3px;
-      font-family: 'Courier New', monospace;
-      font-size: 14px;
+      font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+      font-size: 13px;
     }
     .section-content pre {
-      background: #f5f5f5;
-      padding: 12px;
-      border-radius: 4px;
+      border-radius: 6px;
       overflow-x: auto;
       margin: 12px 0;
+    }
+    .section-content pre[class*="language-"] {
+      margin: 12px 0;
+      border-radius: 6px;
     }
     .section-content pre code {
       background: none;
       padding: 0;
+      font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+      font-size: 13px;
+      line-height: 1.5;
     }
     .section-content blockquote {
       border-left: 4px solid #ddd;
@@ -182,6 +183,189 @@
       border-top: 1px solid #ddd;
       margin: 16px 0;
     }
+    /* ADF Table Styles */
+    .section-content .adf-table-wrapper {
+      overflow-x: auto;
+      margin: 16px 0;
+      max-width: 100%;
+    }
+    .section-content .adf-table {
+      min-width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    .section-content .adf-table th,
+    .section-content .adf-table td {
+      border: 1px solid #ddd;
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .section-content .adf-table th {
+      background: #f5f5f5;
+      font-weight: 600;
+      color: #333;
+    }
+    .section-content .adf-table tr:nth-child(even) td {
+      background: #fafafa;
+    }
+    .section-content .adf-table tr:hover td {
+      background: #f0f7ff;
+    }
+    /* ADF Panel Styles */
+    .section-content .adf-panel {
+      padding: 12px 16px;
+      margin: 12px 0;
+      border-radius: 4px;
+      border-left: 4px solid;
+    }
+    .section-content .adf-panel p:last-child {
+      margin-bottom: 0;
+    }
+    .section-content .adf-panel-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    .section-content .adf-panel-icon {
+      font-size: 16px;
+    }
+    .section-content .adf-panel-info {
+      background: #e3f2fd;
+      border-left-color: #2196F3;
+    }
+    .section-content .adf-panel-info .adf-panel-header {
+      color: #1565c0;
+    }
+    .section-content .adf-panel-note {
+      background: #f3e5f5;
+      border-left-color: #9c27b0;
+    }
+    .section-content .adf-panel-note .adf-panel-header {
+      color: #7b1fa2;
+    }
+    .section-content .adf-panel-warning {
+      background: #fff3e0;
+      border-left-color: #ff9800;
+    }
+    .section-content .adf-panel-warning .adf-panel-header {
+      color: #e65100;
+    }
+    .section-content .adf-panel-error {
+      background: #ffebee;
+      border-left-color: #f44336;
+    }
+    .section-content .adf-panel-error .adf-panel-header {
+      color: #c62828;
+    }
+    .section-content .adf-panel-success {
+      background: #e8f5e9;
+      border-left-color: #4CAF50;
+    }
+    .section-content .adf-panel-success .adf-panel-header {
+      color: #2e7d32;
+    }
+    /* ADF Mention Styles */
+    .section-content .adf-mention {
+      background: #e3f2fd;
+      color: #1565c0;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-weight: 500;
+    }
+    /* ADF Status Badge Styles */
+    .section-content .adf-status {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .section-content .adf-status-neutral {
+      background: #e0e0e0;
+      color: #616161;
+    }
+    .section-content .adf-status-blue {
+      background: #e3f2fd;
+      color: #1565c0;
+    }
+    .section-content .adf-status-green {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+    .section-content .adf-status-yellow {
+      background: #fff8e1;
+      color: #f57f17;
+    }
+    .section-content .adf-status-red {
+      background: #ffebee;
+      color: #c62828;
+    }
+    .section-content .adf-status-purple {
+      background: #f3e5f5;
+      color: #7b1fa2;
+    }
+    /* ADF Date Styles */
+    .section-content .adf-date {
+      background: #f5f5f5;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 13px;
+      color: #666;
+    }
+    /* ADF Expand/Collapse Styles */
+    .section-content .adf-expand {
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin: 12px 0;
+    }
+    .section-content .adf-expand summary {
+      padding: 10px 14px;
+      background: #f9f9f9;
+      cursor: pointer;
+      font-weight: 500;
+      user-select: none;
+    }
+    .section-content .adf-expand summary:hover {
+      background: #f0f0f0;
+    }
+    .section-content .adf-expand[open] summary {
+      border-bottom: 1px solid #ddd;
+    }
+    .section-content .adf-expand > *:not(summary) {
+      padding: 12px 14px;
+    }
+    /* ADF Media Styles */
+    .section-content .adf-media {
+      margin: 12px 0;
+    }
+    .section-content .adf-media-placeholder {
+      background: #f5f5f5;
+      border: 2px dashed #ddd;
+      border-radius: 4px;
+      padding: 20px;
+      text-align: center;
+      color: #999;
+      font-style: italic;
+    }
+    /* ADF Inline Card (Smart Link) Styles */
+    .section-content .adf-inline-card {
+      background: #f5f5f5;
+      padding: 2px 8px;
+      border-radius: 3px;
+      text-decoration: none;
+      color: #1565c0;
+      font-size: 13px;
+      word-break: break-all;
+    }
+    .section-content .adf-inline-card:hover {
+      background: #e3f2fd;
+      text-decoration: underline;
+    }
     .collapsible-section {
       border: 1px solid #ddd;
       border-radius: 6px;
@@ -195,16 +379,6 @@
       background: #f9f9f9;
       cursor: pointer;
       user-select: none;
-      transition: background 0.2s;
-    }
-    .collapsible-header:hover {
-      background: #f0f0f0;
-    }
-    .collapsible-header .section-header {
-      margin: 0;
-      padding: 0;
-      border: none;
-      font-size: 15px;
     }
     .collapse-icon {
       font-size: 18px;
@@ -222,7 +396,8 @@
       transition: max-height 0.3s ease-out;
     }
     .collapsible-content.expanded {
-      max-height: 2000px;
+      max-height: 10000px;
+      overflow-y: auto;
       transition: max-height 0.5s ease-in;
     }
     .input-section {
@@ -242,10 +417,6 @@
       flex: 1;
       min-width: 150px;
     }
-    input:focus, select:focus {
-      outline: none;
-      border-color: #4CAF50;
-    }
     select {
       min-width: 120px;
       background: white;
@@ -259,11 +430,8 @@
       font-weight: 500;
       transition: background 0.2s;
     }
-    button:hover {
+    button:hover:not(:disabled) {
       background: #45a049;
-    }
-    button:active {
-      transform: scale(0.98);
     }
     button:disabled {
       background: #ccc;
@@ -277,27 +445,64 @@
     .controls button {
       flex: 1;
     }
+    button.reveal,
+    button.clear {
+      position: relative;
+      overflow: hidden;
+    }
+    button.reveal::before,
+    button.clear::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      width: 0%;
+      background: rgba(255, 255, 255, 0.3);
+      transition: none;
+      pointer-events: none;
+    }
+    button.reveal.holding::before,
+    button.clear.holding::before {
+      width: 100%;
+      transition: width 0.75s linear;
+    }
     button.reveal {
       background: #2196F3;
     }
-    button.reveal:hover {
+    button.reveal:hover:not(:disabled) {
       background: #0b7dda;
+    }
+    button.reveal:disabled {
+      background: #90caf9;
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+    button.reveal:disabled::before,
+    button.clear:disabled::before {
+      display: none;
     }
     button.clear {
       background: #f44336;
     }
-    button.clear:hover {
+    button.clear:hover:not(:disabled) {
       background: #da190b;
+    }
+    button.clear:disabled {
+      background: #ef9a9a;
+      cursor: not-allowed;
+      opacity: 0.6;
     }
     button.fetch-jira {
       background: #0052CC;
       min-width: 140px;
     }
-    button.fetch-jira:hover {
+    button.fetch-jira:hover:not(:disabled) {
       background: #0747A6;
     }
     .participants {
       margin-top: 20px;
+      min-height: 100px;
     }
     .participants h2 {
       font-size: 18px;
@@ -338,6 +543,72 @@
       padding: 40px;
       color: #999;
     }
+    .vote-distribution {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 6px;
+      border: 1px solid #e9ecef;
+    }
+    .distribution-header {
+      font-size: 14px;
+      font-weight: 600;
+      color: #495057;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+    .distribution-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+    }
+    .distribution-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      background: white;
+      border-radius: 20px;
+      border: 1px solid #dee2e6;
+      font-size: 14px;
+      transition: all 0.2s ease;
+    }
+    .distribution-item.winner {
+      background: #e8f5e9;
+      border-color: #4CAF50;
+      box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+    }
+    .distribution-value {
+      font-weight: 700;
+      font-size: 18px;
+      color: #2196F3;
+      min-width: 24px;
+      text-align: center;
+    }
+    .distribution-item.winner .distribution-value {
+      color: #2e7d32;
+    }
+    .distribution-separator {
+      color: #aaa;
+      font-size: 12px;
+    }
+    .distribution-item.winner .distribution-separator {
+      color: #81c784;
+    }
+    .distribution-count {
+      color: #666;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .distribution-item.winner .distribution-count {
+      color: #2e7d32;
+      font-weight: 600;
+    }
+    .winner-badge {
+      font-size: 11px;
+      margin-left: 4px;
+    }
     .status-indicator {
       position: fixed;
       top: 20px;
@@ -358,9 +629,82 @@
     .status-indicator.error {
       background: #f44336;
     }
-    .loading {
-      opacity: 0.6;
-      pointer-events: none;
+    
+    /* JIRA Image Styles */
+    .jira-image-container {
+      margin: 15px 0;
+      text-align: center;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 10px;
+      background: #f9f9f9;
+    }
+    
+    .jira-image {
+      max-width: 100%;
+      height: auto;
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      cursor: pointer;
+      transition: transform 0.2s ease;
+    }
+    
+    .jira-image:hover {
+      transform: scale(1.02);
+    }
+    
+    .jira-attachment, .jira-external-media {
+      margin: 10px 0;
+      padding: 8px 12px;
+      background: #e3f2fd;
+      border-left: 4px solid #2196F3;
+      border-radius: 4px;
+    }
+    
+    .attachment-link {
+      color: #1976D2;
+      text-decoration: none;
+      font-weight: 500;
+    }
+    
+    .attachment-link:hover {
+      text-decoration: underline;
+    }
+    
+    .media-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 15px 0;
+    }
+
+    .image-caption {
+      font-size: 12px;
+      color: #666;
+      text-align: center;
+      margin-top: 5px;
+      word-break: break-word;
+    }
+
+    .attachments-list {
+      margin-top: 10px;
+    }
+
+    .attachments-list .jira-attachment {
+      margin: 5px 0;
+    }
+    
+    .media-single {
+      margin: 10px 0;
+    }
+    
+    .jira-media-error, .jira-media-unknown {
+      padding: 8px;
+      background: #ffebee;
+      border: 1px solid #f44336;
+      border-radius: 4px;
+      color: #c62828;
+      font-style: italic;
     }
   </style>
 </head>
@@ -399,8 +743,8 @@
     </div>
 
     <div class="controls">
-      <button id="revealBtn" class="reveal">Reveal</button>
-      <button id="clearBtn" class="clear">Clear Votes</button>
+      <button id="revealBtn" class="reveal" disabled title="Hold to reveal">Reveal</button>
+      <button id="clearBtn" class="clear" disabled title="Hold to clear">Clear Votes</button>
     </div>
 
     <div class="participants">
@@ -415,14 +759,44 @@
   <script type="module">
     import { createConsumer } from "@rails/actioncable"
     
-    const votes = {};
-    let revealed = false;
-    let currentTicketData = null;
-    let connectedCount = 0;
+    // Enhanced global state object with validation
+    const state = {
+      votes: {},
+      revealed: false,
+      ticketData: null,
+      ticketId: null,
+      connectedCount: 0,
+      votedCount: 0,
+      version: 0,
+      lastUpdated: 0,
+      sessionHealth: 100,
+      connectionId: null,
+      isConnected: false,
+      lastHeartbeat: 0,
+      reconnectAttempts: 0,
+      maxReconnectAttempts: 10,
+      pendingOperations: new Set()
+    };
+    
     let subscription = null;
+    let heartbeatInterval = null;
+    let reconnectTimeout = null;
+    let stateValidationInterval = null;
+    let healthCheckInterval = null;
+    
     const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+    
+    // Enhanced connection status management
+    function updateConnectionStatus(connected, text = null) {
+      state.isConnected = connected;
+      
+      if (connected) {
+        state.reconnectAttempts = 0; // Reset on successful connection
+      }
+    }
 
-    function showStatus(message, isError = false) {
+    function showStatus(message, isError = false, duration = 3000) {
+      console.log(`[Status] ${message}`);
       const indicator = document.getElementById("statusIndicator");
       indicator.textContent = message;
       indicator.classList.add("show");
@@ -434,140 +808,8 @@
       setTimeout(() => {
         indicator.classList.remove("show");
         indicator.classList.remove("error");
-      }, 3000);
+      }, duration);
     }
-
-    function updatePresenceBadge() {
-      const badge = document.getElementById("presenceBadge");
-      // Calculate voted count from local votes object
-      const currentVotedCount = Object.keys(votes).length;
-      badge.textContent = `${currentVotedCount}/${connectedCount} voted`;
-      
-      // Turn green when everyone has voted
-      if (connectedCount > 0 && currentVotedCount === connectedCount) {
-        badge.classList.add("all-voted");
-      } else {
-        badge.classList.remove("all-voted");
-      }
-    }
-
-    // Helper function to update ticket data and render
-    function updateTicketData(ticketData, ticketTitle) {
-      currentTicketData = ticketData || null;
-      renderTicket();
-    }
-
-    // Fetch initial session state on page load
-    async function fetchInitialState() {
-      try {
-        const response = await fetch("/estimations/session_state");
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const state = await response.json();
-        console.log("Initial state loaded:", state);
-        
-        // Load ticket data
-        if (state.ticket_data || state.ticket_title) {
-          updateTicketData(state.ticket_data, state.ticket_title);
-        }
-        
-        // Load votes
-        if (state.votes) {
-          Object.keys(votes).forEach(key => delete votes[key]);
-          Object.assign(votes, state.votes);
-          renderVotes();
-        }
-        
-        // Load revealed state
-        if (state.revealed) {
-          revealed = true;
-          renderVotes();
-        }
-        
-        // connected_count comes ONLY from ActionCable (via transmit on subscribe)
-        updatePresenceBadge();
-        
-        console.log("Initial state applied successfully");
-      } catch (error) {
-        console.error("Error fetching initial state:", error);
-      }
-    }
-
-    // Helper function to update vote data and render
-    function updateVote(userName, points) {
-      votes[userName] = points;
-      renderVotes();
-      updatePresenceBadge(); // Update badge when votes change
-    }
-
-    // Helper function to reveal votes
-    function revealVotes() {
-      revealed = true;
-      renderVotes();
-    }
-
-    // Helper function to clear votes
-    function clearVotes() {
-      Object.keys(votes).forEach(key => delete votes[key]);
-      revealed = false;
-      renderVotes();
-      updatePresenceBadge(); // Update badge when votes are cleared
-    }
-
-    // Create Action Cable consumer
-    const cable = createConsumer();
-      
-    subscription = cable.subscriptions.create(
-      { channel: "EstimationChannel" },
-      {
-        connected() {
-          console.log("Connected to estimation channel");
-          showStatus("Connected");
-          
-          // Server sends initial state via transmit_current_state
-          
-          // Start sending heartbeats every 10 seconds
-          this.startHeartbeat();
-        },
-        disconnected() {
-          console.log("Disconnected from estimation channel");
-          this.stopHeartbeat();
-        },
-        received(data) {
-          console.log("Received:", data.action);
-          
-          if (data.action === "submit") {
-            updateVote(data.user_name, data.points);
-            showStatus(`${data.user_name} voted`);
-          } else if (data.action === "reveal") {
-            revealVotes();
-            showStatus("All estimates revealed!");
-          } else if (data.action === "clear") {
-            clearVotes();
-            showStatus("Votes cleared!");
-          } else if (data.action === "set_ticket") {
-            updateTicketData(data.ticket_data, data.ticket_title);
-            showStatus("Ticket updated");
-          } else if (data.action === "presence_update") {
-            connectedCount = data.connected_count;
-            updatePresenceBadge();
-          }
-        },
-        startHeartbeat() {
-          this.heartbeatInterval = setInterval(() => {
-            this.perform('heartbeat');
-          }, 10000); // Send heartbeat every 10 seconds
-        },
-        stopHeartbeat() {
-          if (this.heartbeatInterval) {
-            clearInterval(this.heartbeatInterval);
-            this.heartbeatInterval = null;
-          }
-        }
-      }
-    );
 
     function escapeHtml(text) {
       const div = document.createElement('div');
@@ -575,10 +817,134 @@
       return div.innerHTML;
     }
 
+    // Enhanced state validation and sync
+    function validateStateIntegrity(serverState) {
+      const issues = [];
+      
+      if (serverState.version < 0) {
+        issues.push("Invalid version number");
+      }
+      
+      if (serverState.votes && typeof serverState.votes !== 'object') {
+        issues.push("Invalid votes structure");
+      }
+      
+      if (serverState.revealed && (!serverState.votes || Object.keys(serverState.votes).length === 0)) {
+        issues.push("Revealed state without votes");
+      }
+      
+      if (serverState.connected_count < 0) {
+        issues.push("Invalid connection count");
+      }
+      
+      return issues;
+    }
+    
+    function syncState(serverState, changeAction = null) {
+      console.log(`[Sync] Updating to version ${serverState.version} from ${state.version}, action: ${changeAction}`);
+      console.log(`[Sync] Server state:`, serverState);
+      
+      // Prevent infinite loops - track sync attempts
+      if (!state.syncAttempts) state.syncAttempts = 0;
+      state.syncAttempts++;
+      
+      if (state.syncAttempts > 5) {
+        console.error(`[Sync] Too many sync attempts (${state.syncAttempts}), stopping to prevent loop`);
+        showStatus("Sync loop detected. Please refresh the page.", true, 10000);
+        return;
+      }
+      
+      // Validate server state before applying
+      const validationIssues = validateStateIntegrity(serverState);
+      if (validationIssues.length > 0) {
+        console.error(`[Sync] State validation failed: ${validationIssues.join(', ')}`);
+        showStatus("State validation failed. Requesting fresh state...", true);
+        setTimeout(() => requestStateSync(), 1000); // Add delay to prevent rapid loops
+        return;
+      }
+      
+      // Check for version conflicts
+      if (state.version > 0 && serverState.version < state.version) {
+        console.warn(`[Sync] Version regression detected: server ${serverState.version} < client ${state.version}`);
+        showStatus("Version conflict detected. Refreshing state...", true);
+        setTimeout(() => requestStateSync(), 1000); // Add delay to prevent rapid loops
+        return;
+      }
+      
+      // Reset sync attempts and request count on successful sync
+      state.syncAttempts = 0;
+      state.syncRequestCount = 0;
+      
+      // Store previous state for rollback
+      const previousState = { ...state };
+      
+      try {
+        // Update all state properties
+        state.votes = serverState.votes || {};
+        state.revealed = serverState.revealed || false;
+        state.ticketData = serverState.ticket_data || null;
+        state.ticketId = serverState.ticket_id || null;
+        state.connectedCount = serverState.connected_count || 0;
+        state.votedCount = serverState.voted_count || 0;
+        state.version = serverState.version || 0;
+        state.lastUpdated = serverState.last_updated || Date.now();
+        state.sessionHealth = serverState.session_health || 100;
+        
+        console.log(`[Sync] Updated client state:`, state);
+        
+        // Update UI
+        renderAll();
+        
+        // Show appropriate status message
+        if (changeAction && state.version > 0) {
+          showStatusForAction(changeAction);
+        }
+        
+        console.log(`[Sync] State updated successfully to version ${state.version}`);
+        
+      } catch (error) {
+        console.error(`[Sync] Error updating state: ${error.message}`);
+        // Rollback to previous state
+        Object.assign(state, previousState);
+        renderAll();
+        showStatus("State update failed. Please refresh.", true);
+      }
+    }
+
+    function showStatusForAction(action) {
+      switch (action) {
+        case 'ticket_set':
+          showStatus("Ticket loaded");
+          break;
+        case 'vote_added':
+          showStatus("Vote recorded");
+          break;
+        case 'votes_revealed':
+          showStatus("Votes revealed!");
+          break;
+        case 'votes_cleared':
+          showStatus("Votes cleared");
+          break;
+        default:
+          showStatus("Session updated");
+      }
+    }
+
+    function updatePresenceBadge() {
+      const badge = document.getElementById("presenceBadge");
+      badge.textContent = `${state.votedCount}/${state.connectedCount} voted`;
+      
+      if (state.connectedCount > 0 && state.votedCount === state.connectedCount) {
+        badge.classList.add("all-voted");
+      } else {
+        badge.classList.remove("all-voted");
+      }
+    }
+
     function renderTicket() {
       const display = document.getElementById("ticketDisplay");
       
-      if (!currentTicketData) {
+      if (!state.ticketData) {
         display.innerHTML = '<span>No ticket loaded - Enter a JIRA ticket to begin</span>';
         display.classList.add("empty");
         return;
@@ -586,27 +952,30 @@
 
       display.classList.remove("empty");
       
+      // Preserve technical writeup dropdown state
+      const techWriteupExpanded = document.getElementById("technicalWriteupContent")?.classList.contains("expanded");
+      
       let html = `
         <div class="ticket-header">
           <div>
-            <div class="ticket-title">${escapeHtml(currentTicketData.formatted_title || currentTicketData.key)}</div>
+            <div class="ticket-title">${escapeHtml(state.ticketData.formatted_title || state.ticketData.key)}</div>
             <div class="ticket-meta">
-              ${currentTicketData.status ? `
+              ${state.ticketData.status ? `
                 <div class="ticket-meta-item">
                   <span class="ticket-meta-label">Status:</span>
-                  <span>${escapeHtml(currentTicketData.status)}</span>
+                  <span>${escapeHtml(state.ticketData.status)}</span>
                 </div>
               ` : ''}
-              ${currentTicketData.priority ? `
+              ${state.ticketData.priority ? `
                 <div class="ticket-meta-item">
                   <span class="ticket-meta-label">Priority:</span>
-                  <span>${escapeHtml(currentTicketData.priority)}</span>
+                  <span>${escapeHtml(state.ticketData.priority)}</span>
                 </div>
               ` : ''}
-              ${currentTicketData.assignee ? `
+              ${state.ticketData.assignee ? `
                 <div class="ticket-meta-item">
                   <span class="ticket-meta-label">Assignee:</span>
-                  <span>${escapeHtml(currentTicketData.assignee)}</span>
+                  <span>${escapeHtml(state.ticketData.assignee)}</span>
                 </div>
               ` : ''}
             </div>
@@ -615,38 +984,69 @@
         <div class="ticket-content">
       `;
 
-      // Description Section - only show if not empty
-      if (currentTicketData.description && typeof currentTicketData.description === 'string' && currentTicketData.description.trim()) {
+      if (state.ticketData.description && state.ticketData.description.trim()) {
         html += `
           <div class="ticket-section-block">
             <div class="section-header">Description</div>
-            <div class="section-content">${currentTicketData.description}</div>
+            <div class="section-content">${state.ticketData.description}</div>
           </div>
         `;
       }
 
-      // Acceptance Criteria Section - only show if not empty
-      if (currentTicketData.acceptance_criteria && typeof currentTicketData.acceptance_criteria === 'string' && currentTicketData.acceptance_criteria.trim()) {
+      if (state.ticketData.acceptance_criteria && state.ticketData.acceptance_criteria.trim()) {
         html += `
           <div class="ticket-section-block">
             <div class="section-header">Acceptance Criteria</div>
-            <div class="section-content">${currentTicketData.acceptance_criteria}</div>
+            <div class="section-content">${state.ticketData.acceptance_criteria}</div>
           </div>
         `;
       }
 
-      // Technical Writeup - Collapsible - only show if not empty
-      if (currentTicketData.technical_writeup && typeof currentTicketData.technical_writeup === 'string' && currentTicketData.technical_writeup.trim()) {
+      if (state.ticketData.technical_writeup && state.ticketData.technical_writeup.trim()) {
+        const expandedClass = techWriteupExpanded ? "expanded" : "";
+        const iconClass = techWriteupExpanded ? "expanded" : "";
+        
         html += `
           <div class="ticket-section-block">
             <div class="collapsible-section">
               <div class="collapsible-header" onclick="toggleTechnicalWriteup()">
                 <div class="section-header">Technical Writeup</div>
-                <span class="collapse-icon" id="techCollapseIcon">▼</span>
+                <span class="collapse-icon ${iconClass}" id="techCollapseIcon">▼</span>
               </div>
-              <div class="collapsible-content" id="technicalWriteupContent">
-                <div class="section-content">${currentTicketData.technical_writeup}</div>
+              <div class="collapsible-content ${expandedClass}" id="technicalWriteupContent">
+                <div class="section-content">${state.ticketData.technical_writeup}</div>
               </div>
+            </div>
+          </div>
+        `;
+      }
+
+      // Add attachments section
+      if (state.ticketData.attachments && state.ticketData.attachments.length > 0) {
+        html += `
+          <div class="ticket-section-block">
+            <div class="section-header">Attachments</div>
+            <div class="section-content">
+              <div class="attachments-list">
+        `;
+        
+        // Display all attachments as links (images are shown inline in the description)
+        state.ticketData.attachments.forEach(attachment => {
+          const sizeText = attachment.size ? `(${formatFileSize(attachment.size)})` : '';
+          const icon = attachment.is_image ? '🖼️' : '📎';
+          const url = attachment.proxy_url || attachment.url;
+          html += `
+            <div class="jira-attachment">
+              <a href="${url}" target="_blank" class="attachment-link">
+                ${icon} ${escapeHtml(attachment.filename)} ${sizeText}
+              </a>
+            </div>
+          `;
+        });
+        
+        html += `</div>`;
+        
+        html += `
             </div>
           </div>
         `;
@@ -654,44 +1054,307 @@
 
       html += '</div>';
       display.innerHTML = html;
+      
+      // Re-add image click handlers after rendering
+      setTimeout(addImageClickHandlers, 100);
+      
+      // Apply syntax highlighting to code blocks
+      if (typeof Prism !== 'undefined') {
+        Prism.highlightAll();
+      }
     }
 
-    // Make toggleTechnicalWriteup global so onclick can access it
     window.toggleTechnicalWriteup = function() {
       const content = document.getElementById("technicalWriteupContent");
       const icon = document.getElementById("techCollapseIcon");
       
-      if (content.classList.contains("expanded")) {
-        content.classList.remove("expanded");
-        icon.classList.remove("expanded");
-      } else {
-        content.classList.add("expanded");
-        icon.classList.add("expanded");
+      if (content && icon) {
+        if (content.classList.contains("expanded")) {
+          content.classList.remove("expanded");
+          icon.classList.remove("expanded");
+        } else {
+          content.classList.add("expanded");
+          icon.classList.add("expanded");
+        }
       }
     };
 
     function renderVotes() {
       const list = document.getElementById("participantsList");
+      const revealBtn = document.getElementById("revealBtn");
+      const clearBtn = document.getElementById("clearBtn");
+      const hasVotes = state.votes && Object.keys(state.votes).length > 0;
       
-      if (Object.keys(votes).length === 0) {
+      // Enable/disable buttons based on vote state
+      // Only disable when no votes - don't disable based on revealed state
+      // (someone could vote after reveal, and we should be able to reveal again)
+      revealBtn.disabled = !hasVotes;
+      clearBtn.disabled = !hasVotes;
+      
+      if (!hasVotes) {
         list.innerHTML = '<div class="empty-state">No votes yet</div>';
         return;
       }
 
-      list.innerHTML = Object.entries(votes)
+      let html = Object.entries(state.votes)
         .map(([name, points]) => `
           <div class="participant">
             <span class="participant-name">${escapeHtml(name)}</span>
-            ${revealed ? 
+            ${state.revealed ? 
               `<span class="points">${escapeHtml(points)}</span>` : 
               `<span class="participant-status">✓ Voted</span>`
             }
           </div>
         `)
         .join('');
+
+      // Add vote distribution summary when votes are revealed
+      if (state.revealed) {
+        const voteDistribution = getVoteDistribution();
+        if (voteDistribution.length > 0) {
+          html += `
+            <div class="vote-distribution">
+              <div class="distribution-header">Vote Distribution</div>
+              <div class="distribution-items">
+                ${(() => {
+                  const maxCount = Math.max(...voteDistribution.map(d => d.count));
+                  const hasMultipleVotes = voteDistribution.length > 1;
+                  return voteDistribution.map(({value, count}) => {
+                    const isWinner = hasMultipleVotes && count === maxCount;
+                    return `
+                      <div class="distribution-item${isWinner ? ' winner' : ''}">
+                        <span class="distribution-value">${escapeHtml(value)}</span>
+                        <span class="distribution-separator">→</span>
+                        <span class="distribution-count">${count} ${count === 1 ? 'vote' : 'votes'}${isWinner ? '<span class="winner-badge">🏆</span>' : ''}</span>
+                      </div>
+                    `;
+                  }).join('');
+                })()}
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      list.innerHTML = html;
     }
 
-    // Fetch from JIRA
+    function getVoteDistribution() {
+      if (!state.votes || Object.keys(state.votes).length === 0) {
+        return [];
+      }
+
+      // Count votes by value
+      const voteCounts = {};
+      Object.values(state.votes).forEach(points => {
+        voteCounts[points] = (voteCounts[points] || 0) + 1;
+      });
+
+      // Convert to array and sort by vote value (numeric first, then ?)
+      return Object.entries(voteCounts)
+        .map(([value, count]) => ({ value, count }))
+        .sort((a, b) => {
+          // Sort ? last, otherwise sort numerically
+          if (a.value === '?') return 1;
+          if (b.value === '?') return -1;
+          return parseInt(a.value) - parseInt(b.value);
+        });
+    }
+
+    function renderAll() {
+      renderTicket();
+      renderVotes();
+      updatePresenceBadge();
+    }
+
+    // Enhanced WebSocket subscription with robust error handling
+    const cable = createConsumer();
+    
+    function setupSubscription() {
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+      
+      // Clear any existing timers
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      
+      subscription = cable.subscriptions.create(
+        { channel: "EstimationChannel" },
+        {
+          connected() {
+            console.log("[WebSocket] Connected");
+            state.isConnected = true;
+            state.lastHeartbeat = Date.now();
+            updateConnectionStatus(true);
+            showStatus("Connected");
+            
+            // Start enhanced heartbeat
+            startHeartbeat();
+            
+            // Start periodic state validation
+            startStateValidation();
+            
+            // Start health checks
+            startHealthChecks();
+          },
+          
+          disconnected() {
+            console.log("[WebSocket] Disconnected");
+            state.isConnected = false;
+            updateConnectionStatus(false);
+            
+            // Clear timers
+            if (heartbeatInterval) clearInterval(heartbeatInterval);
+            if (stateValidationInterval) clearInterval(stateValidationInterval);
+            if (healthCheckInterval) clearInterval(healthCheckInterval);
+            
+            // Attempt reconnection with exponential backoff
+            attemptReconnection();
+          },
+          
+          received(data) {
+            console.log("[WebSocket] Received:", data);
+            
+            try {
+              if (data.action === "sync_state" || data.action === "sync_state_retry") {
+                // Full state sync with validation (handle both primary and retry)
+                if (data.action === "sync_state_retry") {
+                  console.log(`[WebSocket] Received retry broadcast for ${data.change_action}`);
+                }
+                syncState(data.state, data.change_action);
+                
+              } else if (data.action === "presence_update") {
+                // Update presence counts
+                state.connectedCount = data.connected_count || 0;
+                state.votedCount = data.voted_count || 0;
+                updatePresenceBadge();
+                
+              } else if (data.action === "error") {
+                // Handle server-side errors
+                console.error(`[WebSocket] Server error: ${data.message}`);
+                showStatus(data.message, true, 5000);
+                
+              } else if (data.action === "state_warning") {
+                // Handle state integrity warnings
+                console.warn(`[WebSocket] State warning: ${data.issues.join(', ')}`);
+                showStatus("State integrity issue detected", true, 5000);
+                
+              } else {
+                console.warn(`[WebSocket] Unknown action: ${data.action}`);
+              }
+              
+            } catch (error) {
+              console.error(`[WebSocket] Error processing message: ${error.message}`);
+              showStatus("Message processing error", true);
+            }
+          },
+          
+          rejected() {
+            console.error("[WebSocket] Connection rejected");
+            showStatus("Connection rejected. Please refresh.", true, 10000);
+          }
+        }
+      );
+    }
+
+    function startHeartbeat() {
+      heartbeatInterval = setInterval(() => {
+        if (state.isConnected && subscription) {
+          try {
+            subscription.perform('heartbeat');
+            state.lastHeartbeat = Date.now();
+          } catch (error) {
+            console.error(`[Heartbeat] Error: ${error.message}`);
+          }
+        }
+      }, 30000); // Every 30 seconds (reduced from 10s)
+    }
+
+    function startStateValidation() {
+      stateValidationInterval = setInterval(() => {
+        if (state.isConnected && subscription) {
+          try {
+            subscription.perform('request_state_sync');
+          } catch (error) {
+            console.error(`[StateValidation] Error: ${error.message}`);
+          }
+        }
+      }, 120000); // Every 2 minutes (reduced from 30s)
+    }
+
+    function startHealthChecks() {
+      healthCheckInterval = setInterval(async () => {
+        try {
+          const response = await fetch('/estimations/health', {
+            method: 'GET',
+            headers: {
+              'X-CSRF-Token': csrfToken
+            }
+          });
+          
+          if (response.ok) {
+            const health = await response.json();
+            if (health.status === 'degraded' || health.status === 'error') {
+              console.warn(`[HealthCheck] Session health: ${health.status}`);
+              showStatus(`Session health: ${health.status}`, true, 5000);
+            }
+          }
+        } catch (error) {
+          console.error(`[HealthCheck] Error: ${error.message}`);
+        }
+      }, 300000); // Every 5 minutes (reduced from 1 minute)
+    }
+
+    function attemptReconnection() {
+      if (state.reconnectAttempts >= state.maxReconnectAttempts) {
+        console.error("[Reconnection] Max attempts reached");
+        showStatus("Connection failed. Please refresh the page.", true, 0);
+        return;
+      }
+      
+      state.reconnectAttempts++;
+      const delay = Math.min(1000 * Math.pow(2, state.reconnectAttempts - 1), 30000); // Exponential backoff, max 30s
+      
+      console.log(`[Reconnection] Attempt ${state.reconnectAttempts}/${state.maxReconnectAttempts} in ${delay}ms`);
+      updateConnectionStatus(false);
+      
+      reconnectTimeout = setTimeout(() => {
+        setupSubscription();
+      }, delay);
+    }
+
+    function requestStateSync() {
+      if (subscription && state.isConnected) {
+        // Rate limiting: prevent rapid sync requests
+        const now = Date.now();
+        if (state.lastSyncRequest && (now - state.lastSyncRequest) < 2000) {
+          console.log("[StateSync] Rate limited - too soon since last request");
+          return;
+        }
+        state.lastSyncRequest = now;
+        
+        // Track sync request count for debugging
+        if (!state.syncRequestCount) state.syncRequestCount = 0;
+        state.syncRequestCount++;
+        
+        // Circuit breaker: if too many sync requests, stop
+        if (state.syncRequestCount > 20) {
+          console.error(`[StateSync] Circuit breaker triggered - too many sync requests (${state.syncRequestCount})`);
+          showStatus("Too many sync requests. Please refresh the page.", true, 10000);
+          return;
+        }
+        
+        try {
+          console.log(`[StateSync] Requesting state sync... (count: ${state.syncRequestCount})`);
+          subscription.perform('request_state_sync');
+        } catch (error) {
+          console.error(`[StateSync] Error requesting sync: ${error.message}`);
+        }
+      }
+    }
+
+    // Enhanced event handlers with version checking and retry logic
     document.getElementById("fetchJiraBtn").addEventListener("click", async () => {
       const jiraInput = document.getElementById("jiraTicket").value.trim();
       const btn = document.getElementById("fetchJiraBtn");
@@ -701,9 +1364,13 @@
         return;
       }
 
+      if (!state.isConnected) {
+        showStatus("Not connected. Please wait for connection.", true);
+        return;
+      }
+
       btn.disabled = true;
       btn.textContent = "Fetching...";
-      btn.classList.add("loading");
 
       try {
         const response = await fetch("/estimations/fetch_jira_ticket", {
@@ -712,35 +1379,25 @@
             "Content-Type": "application/json",
             "X-CSRF-Token": csrfToken
           },
-          body: JSON.stringify({
-            jira_input: jiraInput
-          })
+          body: JSON.stringify({ jira_input: jiraInput })
         });
 
         const result = await response.json();
-
         if (!response.ok) {
-          throw new Error(result.error || `HTTP error! status: ${response.status}`);
+          throw new Error(result.error || "Failed to fetch ticket");
         }
 
-        console.log("JIRA ticket fetched successfully:", result);
-        
-        // Immediately update local state (don't wait for ActionCable broadcast)
-        updateTicketData(result.ticket, result.ticket.formatted_title);
-        
-        showStatus("JIRA ticket loaded!");
         document.getElementById("jiraTicket").value = "";
+        showStatus("Ticket loaded successfully");
       } catch (error) {
-        console.error("Error fetching JIRA ticket:", error);
+        console.error(`[JIRA] Error: ${error.message}`);
         showStatus(error.message, true);
       } finally {
         btn.disabled = false;
         btn.textContent = "Fetch from JIRA";
-        btn.classList.remove("loading");
       }
     });
 
-    // Submit vote
     document.getElementById("submitBtn").addEventListener("click", async () => {
       const userName = document.getElementById("userName").value.trim();
       const points = document.getElementById("storyPoints").value;
@@ -750,6 +1407,25 @@
         return;
       }
 
+      if (!state.ticketData) {
+        alert("Please load a ticket before voting");
+        return;
+      }
+
+      if (!state.isConnected) {
+        showStatus("Not connected. Please wait for connection.", true);
+        return;
+      }
+
+      // Check if operation is already pending
+      const operationKey = `vote_${userName}`;
+      if (state.pendingOperations.has(operationKey)) {
+        showStatus("Vote already in progress. Please wait.", true);
+        return;
+      }
+
+      state.pendingOperations.add(operationKey);
+
       try {
         const response = await fetch("/estimations/submit", {
           method: "POST",
@@ -757,81 +1433,364 @@
             "Content-Type": "application/json",
             "X-CSRF-Token": csrfToken
           },
-          body: JSON.stringify({
-            user_name: userName,
-            points: points
+          body: JSON.stringify({ 
+            user_name: userName, 
+            points: points,
+            expected_version: state.version
           })
         });
 
+        const result = await response.json();
+        
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          if (result.requires_refresh) {
+            showStatus("Session state changed. Refreshing...", true);
+            requestStateSync();
+          } else {
+            throw new Error(result.error || "Failed to submit vote");
+          }
+        } else {
+          showStatus("Vote submitted successfully");
+          document.getElementById("storyPoints").value = "";
         }
-
-        console.log("Vote submitted successfully");
-        
-        // Immediately update local state (don't wait for ActionCable broadcast)
-        updateVote(userName, points);
-        
-        document.getElementById("storyPoints").value = "";
       } catch (error) {
-        console.error("Error submitting vote:", error);
-        alert("Failed to submit vote. Check console for details.");
+        console.error(`[Vote] Error: ${error.message}`);
+        showStatus(error.message, true);
+      } finally {
+        state.pendingOperations.delete(operationKey);
       }
     });
 
-    // Reveal votes
-    document.getElementById("revealBtn").addEventListener("click", async () => {
+    // Hold-to-reveal functionality (0.5 second hold required)
+    const revealBtn = document.getElementById("revealBtn");
+    let revealHoldTimer = null;
+    const HOLD_DURATION = 750; // milliseconds (0.75 seconds)
+
+    async function executeReveal() {
+      if (Object.keys(state.votes).length === 0) {
+        return;
+      }
+
+      if (!state.isConnected) {
+        showStatus("Not connected. Please wait for connection.", true);
+        return;
+      }
+
+      if (state.pendingOperations.has('reveal')) {
+        showStatus("Reveal already in progress. Please wait.", true);
+        return;
+      }
+
+      state.pendingOperations.add('reveal');
+
       try {
         const response = await fetch("/estimations/reveal", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "X-CSRF-Token": csrfToken
-          }
+          },
+          body: JSON.stringify({
+            expected_version: state.version
+          })
         });
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        console.log("Votes revealed successfully");
+        const result = await response.json();
         
-        // Immediately update local state (don't wait for ActionCable broadcast)
-        revealVotes();
+        if (!response.ok) {
+          if (result.requires_refresh) {
+            showStatus("Session state changed. Refreshing...", true);
+            requestStateSync();
+          } else {
+            throw new Error(result.error || "Failed to reveal votes");
+          }
+        } else {
+          showStatus("Votes revealed successfully");
+        }
       } catch (error) {
-        console.error("Error revealing votes:", error);
-        alert("Failed to reveal votes. Check console for details.");
+        console.error(`[Reveal] Error: ${error.message}`);
+        showStatus(error.message, true);
+      } finally {
+        state.pendingOperations.delete('reveal');
       }
+    }
+
+    function startRevealHold(e) {
+      if (revealBtn.disabled) return;
+      e.preventDefault();
+      
+      // Add holding class to start the CSS animation
+      revealBtn.classList.add('holding');
+      
+      // Set timer to execute reveal after hold duration
+      revealHoldTimer = setTimeout(() => {
+        revealBtn.classList.remove('holding');
+        executeReveal();
+      }, HOLD_DURATION);
+    }
+
+    function cancelRevealHold() {
+      if (revealHoldTimer) {
+        clearTimeout(revealHoldTimer);
+        revealHoldTimer = null;
+      }
+      revealBtn.classList.remove('holding');
+    }
+
+    // Mouse events
+    revealBtn.addEventListener("mousedown", startRevealHold);
+    revealBtn.addEventListener("mouseup", cancelRevealHold);
+    revealBtn.addEventListener("mouseleave", cancelRevealHold);
+    
+    // Touch events for mobile
+    revealBtn.addEventListener("touchstart", startRevealHold);
+    revealBtn.addEventListener("touchend", cancelRevealHold);
+    revealBtn.addEventListener("touchcancel", cancelRevealHold);
+    
+    // Prevent click from firing after hold completes
+    revealBtn.addEventListener("click", (e) => {
+      e.preventDefault();
     });
 
-    // Clear votes
-    document.getElementById("clearBtn").addEventListener("click", async () => {
+    // Hold-to-clear functionality (1 second hold required)
+    const clearBtn = document.getElementById("clearBtn");
+    let clearHoldTimer = null;
+
+    async function executeClear() {
+      if (Object.keys(state.votes).length === 0) {
+        return;
+      }
+
+      if (!state.isConnected) {
+        showStatus("Not connected. Please wait for connection.", true);
+        return;
+      }
+
+      if (state.pendingOperations.has('clear')) {
+        showStatus("Clear already in progress. Please wait.", true);
+        return;
+      }
+
+      state.pendingOperations.add('clear');
+
+      console.log(`[Clear] Starting clear operation with version ${state.version}`);
+
       try {
         const response = await fetch("/estimations/clear", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "X-CSRF-Token": csrfToken
-          }
+          },
+          body: JSON.stringify({
+            expected_version: state.version
+          })
         });
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        console.log("Votes cleared successfully");
+        console.log(`[Clear] Response status: ${response.status}`);
+        const result = await response.json();
+        console.log(`[Clear] Response result:`, result);
         
-        // Immediately update local state (don't wait for ActionCable broadcast)
-        clearVotes();
+        if (!response.ok) {
+          if (result.requires_refresh) {
+            console.log(`[Clear] Version conflict detected, refreshing state`);
+            showStatus("Session state changed. Refreshing...", true);
+            requestStateSync();
+          } else {
+            throw new Error(result.error || "Failed to clear votes");
+          }
+        } else {
+          console.log(`[Clear] Clear operation successful, new version: ${result.new_version}`);
+          showStatus("Votes cleared successfully");
+          
+          // Force immediate state sync to ensure all clients are updated
+          setTimeout(() => {
+            console.log(`[Clear] Requesting state sync after clear operation`);
+            requestStateSync();
+          }, 200);
+        }
       } catch (error) {
-        console.error("Error clearing votes:", error);
-        alert("Failed to clear votes. Check console for details.");
+        console.error(`[Clear] Error: ${error.message}`);
+        showStatus(error.message, true);
+      } finally {
+        state.pendingOperations.delete('clear');
       }
+    }
+
+    function startClearHold(e) {
+      if (clearBtn.disabled) return;
+      e.preventDefault();
+      
+      clearBtn.classList.add('holding');
+      
+      clearHoldTimer = setTimeout(() => {
+        clearBtn.classList.remove('holding');
+        executeClear();
+      }, HOLD_DURATION);
+    }
+
+    function cancelClearHold() {
+      if (clearHoldTimer) {
+        clearTimeout(clearHoldTimer);
+        clearHoldTimer = null;
+      }
+      clearBtn.classList.remove('holding');
+    }
+
+    // Mouse events
+    clearBtn.addEventListener("mousedown", startClearHold);
+    clearBtn.addEventListener("mouseup", cancelClearHold);
+    clearBtn.addEventListener("mouseleave", cancelClearHold);
+    
+    // Touch events for mobile
+    clearBtn.addEventListener("touchstart", startClearHold);
+    clearBtn.addEventListener("touchend", cancelClearHold);
+    clearBtn.addEventListener("touchcancel", cancelClearHold);
+    
+    // Prevent click from firing after hold completes
+    clearBtn.addEventListener("click", (e) => {
+      e.preventDefault();
     });
 
-    // Initial render (empty state)
-    renderVotes();
-    renderTicket();
+    // Initialize application with cleanup
+    function init() {
+      console.log("[Init] Starting enhanced planning poker application");
+      
+      // Set up page visibility handling
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+          console.log("[Visibility] Page hidden - pausing timers");
+          pauseTimers();
+        } else {
+          console.log("[Visibility] Page visible - resuming timers");
+          resumeTimers();
+        }
+      });
+      
+      // Set up beforeunload handling
+      window.addEventListener('beforeunload', () => {
+        console.log("[Cleanup] Page unloading - cleaning up");
+        cleanup();
+      });
+      
+      // Initialize WebSocket connection
+      setupSubscription();
+      
+      // Initial render
+      renderAll();
+      
+      console.log("[Init] Application initialized successfully");
+    }
+
+    function pauseTimers() {
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+      if (stateValidationInterval) clearInterval(stateValidationInterval);
+      if (healthCheckInterval) clearInterval(healthCheckInterval);
+    }
+
+    function resumeTimers() {
+      if (state.isConnected) {
+        startHeartbeat();
+        startStateValidation();
+        startHealthChecks();
+      }
+    }
+
+    function cleanup() {
+      // Clear all timers
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (stateValidationInterval) clearInterval(stateValidationInterval);
+      if (healthCheckInterval) clearInterval(healthCheckInterval);
+      
+      // Unsubscribe from WebSocket
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+      
+      console.log("[Cleanup] Cleanup completed");
+    }
+
+    // Add image click handlers for expansion
+    function addImageClickHandlers() {
+      // Add click handlers to all JIRA images
+      document.querySelectorAll('.jira-image').forEach(img => {
+        img.addEventListener('click', function() {
+          openImageModal(this.src, this.alt);
+        });
+      });
+    }
+
+    // Format file size for display
+    function formatFileSize(bytes) {
+      if (!bytes) return '';
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(1024));
+      return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
+    }
+
+    function openImageModal(src, alt) {
+      // Create modal overlay
+      const modal = document.createElement('div');
+      modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.8);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 10000;
+        cursor: pointer;
+      `;
+      
+      // Create image
+      const img = document.createElement('img');
+      img.src = src;
+      img.alt = alt;
+      img.style.cssText = `
+        max-width: 90%;
+        max-height: 90%;
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      `;
+      
+      // Create close button
+      const closeBtn = document.createElement('div');
+      closeBtn.innerHTML = '×';
+      closeBtn.style.cssText = `
+        position: absolute;
+        top: 20px;
+        right: 30px;
+        color: white;
+        font-size: 40px;
+        font-weight: bold;
+        cursor: pointer;
+        z-index: 10001;
+      `;
+      
+      modal.appendChild(img);
+      modal.appendChild(closeBtn);
+      document.body.appendChild(modal);
+      
+      // Close modal on click
+      modal.addEventListener('click', function() {
+        document.body.removeChild(modal);
+      });
+      
+      // Prevent image click from closing modal
+      img.addEventListener('click', function(e) {
+        e.stopPropagation();
+      });
+    }
+
+    // Start the application
+    init();
+    
+    // Add image handlers after initial render
+    setTimeout(addImageClickHandlers, 1000);
   </script>
 </body>
 </html>

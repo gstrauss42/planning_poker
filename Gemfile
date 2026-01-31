@@ -18,6 +18,8 @@ gem "stimulus-rails"
 gem "jbuilder"
 
 gem "httparty", "~> 0.21"
+gem "redis", "~> 5.4"
+gem "connection_pool", "~> 2.4"
 
 # Use Active Model has_secure_password [https://guides.rubyonrails.org/active_model_basics.html#securepassword]
 # gem "bcrypt", "~> 3.1.7"

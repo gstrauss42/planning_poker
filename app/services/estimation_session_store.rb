@@ -15,31 +15,50 @@ class EstimationSessionStore
       state = get_state
       state[:ticket_data] = ticket_data
       state[:ticket_title] = ticket_title
+      state[:ticket_id] = ticket_data ? ticket_data[:key] : nil
+      # Clear votes when changing tickets
+      state[:votes] = {}
+      state[:revealed] = false
+      state[:version] = state[:version] + 1
       save_state(state)
+      Rails.logger.info "[Store] Ticket set: #{ticket_title}, version: #{state[:version]}"
+      state
     end
 
     def add_vote(user_name, points)
       state = get_state
       state[:votes][user_name] = points
+      state[:version] = state[:version] + 1
       save_state(state)
+      Rails.logger.info "[Store] Vote added: #{user_name}=#{points}, version: #{state[:version]}"
+      state
     end
 
     def reveal
       state = get_state
-      state[:revealed] = true
-      save_state(state)
+      if state[:votes].any?
+        state[:revealed] = true
+        state[:version] = state[:version] + 1
+        save_state(state)
+        Rails.logger.info "[Store] Revealed votes, version: #{state[:version]}"
+      end
+      state
     end
 
     def clear_votes
       state = get_state
       state[:votes] = {}
       state[:revealed] = false
+      state[:version] = state[:version] + 1
       save_state(state)
+      Rails.logger.info "[Store] Cleared votes, version: #{state[:version]}"
+      state
     end
 
     def clear_all
       Rails.cache.delete(SESSION_KEY)
       Rails.cache.delete(PRESENCE_KEY)
+      default_state
     end
 
     # Presence tracking
@@ -47,24 +66,26 @@ class EstimationSessionStore
       presence = get_presence
       presence[connection_id] = Time.current.to_i
       save_presence(presence)
-      broadcast_presence_count
+      cleanup_stale_connections
+      Rails.logger.info "[Store] Connection added: #{connection_id}"
     end
 
     def remove_connection(connection_id)
       presence = get_presence
       presence.delete(connection_id)
       save_presence(presence)
-      broadcast_presence_count
+      Rails.logger.info "[Store] Connection removed: #{connection_id}"
     end
 
     def heartbeat(connection_id)
       presence = get_presence
       presence[connection_id] = Time.current.to_i
       save_presence(presence)
-    end
-
-    def get_presence
-      Rails.cache.read(PRESENCE_KEY) || {}
+      
+      # Cleanup every 10 heartbeats
+      if rand(10) == 0
+        cleanup_stale_connections
+      end
     end
 
     def cleanup_stale_connections
@@ -72,19 +93,33 @@ class EstimationSessionStore
       current_time = Time.current.to_i
       
       presence.reject! do |_id, last_seen|
-        current_time - last_seen > PRESENCE_EXPIRY
+        current_time - last_seen > PRESENCE_EXPIRY.to_i
       end
       
       save_presence(presence)
     end
 
     def connected_count
-      cleanup_stale_connections
-      get_presence.count
+      cleanup_stale_connections.count
     end
 
     def voted_count
       get_state[:votes].count
+    end
+
+    # Get complete state for broadcast
+    def get_broadcast_state
+      state = get_state
+      {
+        ticket_data: state[:ticket_data],
+        ticket_title: state[:ticket_title],
+        ticket_id: state[:ticket_id],
+        votes: state[:votes],
+        revealed: state[:revealed],
+        connected_count: connected_count,
+        voted_count: state[:votes].count,
+        version: state[:version]
+      }
     end
 
     private
@@ -93,8 +128,10 @@ class EstimationSessionStore
       {
         ticket_data: nil,
         ticket_title: nil,
+        ticket_id: nil,
         votes: {},
-        revealed: false
+        revealed: false,
+        version: 0
       }
     end
 
@@ -108,14 +145,8 @@ class EstimationSessionStore
       presence
     end
 
-    def broadcast_presence_count
-      ActionCable.server.broadcast(
-        "estimation_session",
-        {
-          action: "presence_update",
-          connected_count: connected_count
-        }
-      )
+    def get_presence
+      Rails.cache.read(PRESENCE_KEY) || {}
     end
   end
 end
