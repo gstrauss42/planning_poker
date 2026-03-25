@@ -16,6 +16,91 @@ class JiraService
     validate_credentials!
   end
 
+  # Fetch all tickets from a sprint
+  def fetch_sprint_tickets(sprint_name)
+    unless @board_id.present?
+      raise JiraError, "Board ID not configured. Please add :board_id to your JIRA credentials."
+    end
+
+    # First, find the sprint by name
+    sprint_id = find_sprint_by_name(sprint_name)
+    unless sprint_id
+      raise JiraError, "Sprint '#{sprint_name}' not found on board #{@board_id}"
+    end
+
+    Rails.logger.info("Found sprint '#{sprint_name}' with ID: #{sprint_id}")
+
+    # Use JQL search API with GET request for better filtering
+    # This ensures we only get tickets currently in the sprint
+    all_tickets = []
+    start_at = 0
+    max_results = 50
+
+    # Build fields list
+    fields_list = ["summary", "description", "status", "priority", "assignee", "issuetype", "attachment"]
+    fields_list << @acceptance_criteria_field if @acceptance_criteria_field.present?
+    fields_list << @technical_writeup_field if @technical_writeup_field.present?
+
+    loop do
+      url = "#{@base_url}/rest/api/3/search/jql"
+      Rails.logger.info("Fetching tickets via JQL search (start: #{start_at})")
+
+      # JQL to get only active tickets currently in this sprint
+      # Exclude completed/cancelled tickets and Epics
+      # Note: Can't use "sprint not in futureSprints()" because the target sprint itself might be future
+      jql = "project = #{@project} AND sprint = #{sprint_id} AND status NOT IN (Done, Closed, 'Won\\'t Do', Resolved, Complete, Cancelled) AND type != Epic ORDER BY created DESC"
+
+      params = {
+        jql: jql,
+        startAt: start_at,
+        maxResults: max_results,
+        fields: fields_list.join(','),
+        expand: "renderedFields"
+      }
+
+      response = HTTParty.get(
+        url,
+        basic_auth: { username: @email, password: @api_token },
+        headers: { 'Content-Type' => 'application/json' },
+        query: params
+      )
+
+      unless response.success?
+        Rails.logger.error("JQL search failed: #{response.code} - #{response.message}")
+        Rails.logger.error("Response body: #{response.body}")
+        handle_error_response(response)
+      end
+
+      data = response.parsed_response
+      issues = data['issues'] || []
+
+      Rails.logger.info("Received #{issues.count} issues in this batch. Total reported by JIRA: #{data['total']}")
+
+      # Parse each issue
+      issues.each do |issue_data|
+        begin
+          ticket = parse_issue_data(issue_data)
+          all_tickets << ticket
+          Rails.logger.info("  ✓ #{ticket[:key]}: #{ticket[:summary][0..60]}... (Status: #{ticket[:status]})")
+        rescue StandardError => e
+          Rails.logger.error("Error parsing issue #{issue_data['key']}: #{e.message}")
+          # Continue with other tickets even if one fails
+        end
+      end
+
+      # Check if there are more results
+      total = data['total'] || 0
+      start_at += max_results
+      break if start_at >= total
+    end
+
+    Rails.logger.info("Fetched #{all_tickets.count} tickets from sprint '#{sprint_name}'")
+    all_tickets
+  rescue StandardError => e
+    Rails.logger.error("JIRA Sprint API Error: #{e.message}")
+    raise JiraError, "Failed to fetch sprint tickets: #{e.message}"
+  end
+
   # Accepts either full JIRA URL or just ticket key (e.g., "PROJ-123")
   def fetch_ticket(input)
     ticket_key = extract_ticket_key(input)
@@ -58,6 +143,106 @@ class JiraService
   end
 
   private
+
+  def find_sprint_by_name(sprint_name)
+    # Get all sprints for the board
+    start_at = 0
+    max_results = 50
+
+    Rails.logger.info("Searching for sprint '#{sprint_name}' on board #{@board_id}")
+
+    loop do
+      url = "#{@base_url}/rest/agile/1.0/board/#{@board_id}/sprint"
+      params = {
+        startAt: start_at,
+        maxResults: max_results
+      }
+
+      response = HTTParty.get(
+        url,
+        basic_auth: { username: @email, password: @api_token },
+        headers: { 'Content-Type' => 'application/json' },
+        query: params
+      )
+
+      unless response.success?
+        handle_error_response(response)
+      end
+
+      data = response.parsed_response
+      sprints = data['values'] || []
+
+      Rails.logger.info("Found #{sprints.count} sprints in this batch:")
+      sprints.each do |s|
+        Rails.logger.info("  - Sprint: '#{s['name']}' (ID: #{s['id']}, State: #{s['state']})")
+      end
+
+      # Look for sprint with matching name (case-insensitive)
+      sprint = sprints.find { |s| s['name'].downcase == sprint_name.downcase }
+      if sprint
+        Rails.logger.info("✓ Matched sprint: '#{sprint['name']}' (ID: #{sprint['id']})")
+        return sprint['id']
+      end
+
+      # Check if there are more results
+      is_last = data['isLast']
+      break if is_last
+
+      start_at += max_results
+    end
+
+    nil  # Sprint not found
+  end
+
+  def parse_issue_data(issue_data)
+    # Similar to parse_ticket_response but takes issue data directly
+    data = { 'key' => issue_data['key'], 'fields' => issue_data['fields'] }
+
+    # Add renderedFields if present
+    if issue_data['renderedFields']
+      data['renderedFields'] = issue_data['renderedFields']
+    end
+
+    # Get attachments first so we can build UUID -> ID lookup for inline images
+    attachments = extract_attachments(data)
+    @attachment_lookup = build_attachment_lookup(attachments)
+
+    # Get description (might be in different formats)
+    raw_description = extract_description(data)
+
+    # Parse sections from description
+    sections = parse_description_sections(raw_description)
+
+    # Try to get acceptance criteria from custom field if configured
+    acceptance_criteria = if @acceptance_criteria_field.present?
+      field_value = data.dig('fields', @acceptance_criteria_field)
+      extract_field_value(field_value)
+    else
+      sections[:acceptance_criteria]
+    end
+
+    # Try to get technical writeup from custom field if configured
+    technical_writeup = if @technical_writeup_field.present?
+      field_value = data.dig('fields', @technical_writeup_field)
+      extract_field_value(field_value)
+    else
+      sections[:technical_writeup]
+    end
+
+    {
+      key: data['key'],
+      summary: data.dig('fields', 'summary'),
+      description: sections[:description] || raw_description,
+      acceptance_criteria: acceptance_criteria,
+      technical_writeup: technical_writeup,
+      attachments: attachments,
+      status: data.dig('fields', 'status', 'name'),
+      priority: data.dig('fields', 'priority', 'name'),
+      assignee: data.dig('fields', 'assignee', 'displayName'),
+      issue_type: data.dig('fields', 'issuetype', 'name'),
+      formatted_title: "#{data['key']}: #{data.dig('fields', 'summary')}"
+    }
+  end
 
   def validate_credentials!
     missing = []

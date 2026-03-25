@@ -203,9 +203,94 @@ class AtomicStateManager
         new_state[:revealed] = false
         new_state[:version] = current_state[:version] + 1
         new_state[:last_updated] = Time.current.to_i
-        
+
         save_state(new_state)
         broadcast_state_change("ticket_set", new_state)
+        new_state
+      end
+    end
+
+    # Set multiple tickets and initialize multi-ticket state
+    def set_tickets(tickets_array)
+      atomic_update("set_tickets") do
+        current_state = get_state
+        new_state = current_state.dup
+
+        # Store array of all tickets
+        new_state[:tickets] = tickets_array
+        new_state[:current_ticket_index] = 0
+
+        # Initialize votes_by_ticket if not present
+        new_state[:votes_by_ticket] ||= {}
+        new_state[:revealed_by_ticket] ||= {}
+
+        # Set current ticket to first in array
+        if tickets_array.any?
+          first_ticket = tickets_array[0]
+          new_state[:ticket_data] = first_ticket
+          new_state[:ticket_title] = first_ticket[:formatted_title]
+          new_state[:ticket_id] = first_ticket[:key]
+
+          # Load votes for this ticket if any
+          new_state[:votes] = new_state[:votes_by_ticket][first_ticket[:key]] || {}
+          new_state[:revealed] = new_state[:revealed_by_ticket][first_ticket[:key]] || false
+        else
+          new_state[:ticket_data] = nil
+          new_state[:ticket_title] = nil
+          new_state[:ticket_id] = nil
+          new_state[:votes] = {}
+          new_state[:revealed] = false
+        end
+
+        new_state[:version] = current_state[:version] + 1
+        new_state[:last_updated] = Time.current.to_i
+
+        save_state(new_state)
+        broadcast_state_change("tickets_loaded", new_state)
+        new_state
+      end
+    end
+
+    # Navigate to a specific ticket by index
+    def set_current_ticket(index, expected_version = nil)
+      atomic_update("set_current_ticket") do
+        current_state = get_state
+
+        # Version conflict check
+        if expected_version && current_state[:version] != expected_version
+          raise VersionConflictError, "Version mismatch: expected #{expected_version}, got #{current_state[:version]}"
+        end
+
+        tickets = current_state[:tickets] || []
+        return current_state if tickets.empty? || index < 0 || index >= tickets.length
+
+        new_state = current_state.dup
+
+        # Save current ticket's votes before switching
+        if current_state[:ticket_id]
+          new_state[:votes_by_ticket] = (current_state[:votes_by_ticket] || {}).dup
+          new_state[:votes_by_ticket][current_state[:ticket_id]] = current_state[:votes]
+
+          new_state[:revealed_by_ticket] = (current_state[:revealed_by_ticket] || {}).dup
+          new_state[:revealed_by_ticket][current_state[:ticket_id]] = current_state[:revealed]
+        end
+
+        # Switch to new ticket
+        new_state[:current_ticket_index] = index
+        new_ticket = tickets[index]
+        new_state[:ticket_data] = new_ticket
+        new_state[:ticket_title] = new_ticket[:formatted_title]
+        new_state[:ticket_id] = new_ticket[:key]
+
+        # Load votes for new ticket
+        new_state[:votes] = new_state[:votes_by_ticket][new_ticket[:key]] || {}
+        new_state[:revealed] = new_state[:revealed_by_ticket][new_ticket[:key]] || false
+
+        new_state[:version] = current_state[:version] + 1
+        new_state[:last_updated] = Time.current.to_i
+
+        save_state(new_state)
+        broadcast_state_change("ticket_changed", new_state)
         new_state
       end
     end
@@ -435,6 +520,10 @@ class AtomicStateManager
         ticket_id: state[:ticket_id],
         votes: state[:votes],
         revealed: state[:revealed],
+        tickets: state[:tickets] || [],
+        current_ticket_index: state[:current_ticket_index] || 0,
+        votes_by_ticket: state[:votes_by_ticket] || {},
+        revealed_by_ticket: state[:revealed_by_ticket] || {},
         connected_count: connected_count,
         voted_count: voted_count,
         version: state[:version],
@@ -655,6 +744,10 @@ class AtomicStateManager
         ticket_id: nil,
         votes: {},
         revealed: false,
+        tickets: [],
+        current_ticket_index: 0,
+        votes_by_ticket: {},
+        revealed_by_ticket: {},
         version: 0,
         last_updated: Time.current.to_i
       }

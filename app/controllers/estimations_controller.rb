@@ -137,33 +137,124 @@ class EstimationsController < ApplicationController
     begin
       jira_service = JiraService.new
       ticket_data = jira_service.fetch_ticket(jira_input)
-      
+
       # Atomic ticket setting
       AtomicStateManager.set_ticket(ticket_data, ticket_data[:formatted_title])
-      
-      render json: { 
-        success: true, 
+
+      render json: {
+        success: true,
         message: "Ticket loaded successfully",
         timestamp: Time.current.to_i
       }
-      
+
     rescue JiraService::JiraError => e
       Rails.logger.error("JIRA fetch error: #{e.message}")
-      render json: { 
+      render json: {
         error: e.message,
         timestamp: Time.current.to_i
       }, status: :unprocessable_entity
-      
+
     rescue AtomicStateManager::StateError => e
       Rails.logger.error "[Controller] State error during JIRA fetch: #{e.message}"
-      render json: { 
+      render json: {
         error: "Failed to load ticket. Please try again.",
         timestamp: Time.current.to_i
       }, status: :unprocessable_entity
-      
+
     rescue StandardError => e
       Rails.logger.error("Unexpected error: #{e.message}")
-      render json: { 
+      render json: {
+        error: "An unexpected error occurred",
+        timestamp: Time.current.to_i
+      }, status: :internal_server_error
+    end
+  end
+
+  def fetch_sprint_tickets
+    sprint_name = params[:sprint_name] || "Refinement & Estimations"
+
+    begin
+      jira_service = JiraService.new
+      tickets = jira_service.fetch_sprint_tickets(sprint_name)
+
+      if tickets.empty?
+        render json: {
+          error: "No tickets found in sprint '#{sprint_name}'",
+          timestamp: Time.current.to_i
+        }, status: :unprocessable_entity
+        return
+      end
+
+      # Atomic tickets setting
+      AtomicStateManager.set_tickets(tickets)
+
+      render json: {
+        success: true,
+        message: "Loaded #{tickets.count} tickets from sprint '#{sprint_name}'",
+        ticket_count: tickets.count,
+        timestamp: Time.current.to_i
+      }
+
+    rescue JiraService::JiraError => e
+      Rails.logger.error("JIRA sprint fetch error: #{e.message}")
+      render json: {
+        error: e.message,
+        timestamp: Time.current.to_i
+      }, status: :unprocessable_entity
+
+    rescue AtomicStateManager::StateError => e
+      Rails.logger.error "[Controller] State error during sprint fetch: #{e.message}"
+      render json: {
+        error: "Failed to load sprint tickets. Please try again.",
+        timestamp: Time.current.to_i
+      }, status: :unprocessable_entity
+
+    rescue StandardError => e
+      Rails.logger.error("Unexpected error fetching sprint: #{e.message}")
+      render json: {
+        error: "An unexpected error occurred",
+        timestamp: Time.current.to_i
+      }, status: :internal_server_error
+    end
+  end
+
+  def navigate_ticket
+    index = params[:index]&.to_i
+    expected_version = params[:expected_version]&.to_i
+
+    if index.nil?
+      render json: { error: "Ticket index is required" }, status: :bad_request
+      return
+    end
+
+    begin
+      # Atomic ticket navigation
+      AtomicStateManager.set_current_ticket(index, expected_version)
+
+      render json: {
+        success: true,
+        message: "Navigated to ticket",
+        timestamp: Time.current.to_i
+      }
+
+    rescue AtomicStateManager::VersionConflictError => e
+      Rails.logger.warn "[Controller] Version conflict during navigation: #{e.message}"
+      render json: {
+        error: "Session state has changed. Please refresh and try again.",
+        requires_refresh: true,
+        timestamp: Time.current.to_i
+      }, status: :conflict
+
+    rescue AtomicStateManager::StateError => e
+      Rails.logger.error "[Controller] State error during navigation: #{e.message}"
+      render json: {
+        error: "Failed to navigate to ticket. Please try again.",
+        timestamp: Time.current.to_i
+      }, status: :unprocessable_entity
+
+    rescue StandardError => e
+      Rails.logger.error("[Controller] Unexpected error during navigation: #{e.message}")
+      render json: {
         error: "An unexpected error occurred",
         timestamp: Time.current.to_i
       }, status: :internal_server_error
