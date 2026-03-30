@@ -1,18 +1,18 @@
 # app/services/jira_service.rb
 class JiraService
   class JiraError < StandardError; end
-  
+
   def initialize
     @base_url = Rails.application.credentials.dig(:jira, :base_url)
     @email = Rails.application.credentials.dig(:jira, :email)
     @api_token = Rails.application.credentials.dig(:jira, :api_token)
     @project = Rails.application.credentials.dig(:jira, :project)
     @board_id = Rails.application.credentials.dig(:jira, :board_id)
-    
+
     # Optional: Custom field IDs for acceptance criteria and technical writeup
     @acceptance_criteria_field = Rails.application.credentials.dig(:jira, :acceptance_criteria_field)
     @technical_writeup_field = Rails.application.credentials.dig(:jira, :technical_writeup_field)
-    
+
     validate_credentials!
   end
 
@@ -37,7 +37,7 @@ class JiraService
     max_results = 50
 
     # Build fields list
-    fields_list = ["summary", "description", "status", "priority", "assignee", "issuetype", "attachment"]
+    fields_list = [ "summary", "description", "status", "priority", "assignee", "issuetype", "attachment" ]
     fields_list << @acceptance_criteria_field if @acceptance_criteria_field.present?
     fields_list << @technical_writeup_field if @technical_writeup_field.present?
 
@@ -54,14 +54,14 @@ class JiraService
         jql: jql,
         startAt: start_at,
         maxResults: max_results,
-        fields: fields_list.join(','),
+        fields: fields_list.join(","),
         expand: "renderedFields"
       }
 
       response = HTTParty.get(
         url,
         basic_auth: { username: @email, password: @api_token },
-        headers: { 'Content-Type' => 'application/json' },
+        headers: { "Content-Type" => "application/json" },
         query: params
       )
 
@@ -72,7 +72,7 @@ class JiraService
       end
 
       data = response.parsed_response
-      issues = data['issues'] || []
+      issues = data["issues"] || []
 
       Rails.logger.info("Received #{issues.count} issues in this batch. Total reported by JIRA: #{data['total']}")
 
@@ -89,7 +89,7 @@ class JiraService
       end
 
       # Check if there are more results
-      total = data['total'] || 0
+      total = data["total"] || 0
       start_at += max_results
       break if start_at >= total
     end
@@ -104,31 +104,31 @@ class JiraService
   # Accepts either full JIRA URL or just ticket key (e.g., "PROJ-123")
   def fetch_ticket(input)
     ticket_key = extract_ticket_key(input)
-    
+
     # Optional: Validate ticket belongs to your project
     if @project.present? && ticket_key.present?
-      project_from_key = ticket_key.split('-').first
+      project_from_key = ticket_key.split("-").first
       unless project_from_key.casecmp(@project).zero?
         raise JiraError, "Ticket #{ticket_key} is not from your project (#{@project})"
       end
     end
-    
+
     url = "#{@base_url}/rest/api/3/issue/#{ticket_key}"
-    
+
     # Include custom fields if configured
-    fields_list = ["summary", "description", "status", "priority", "assignee", "issuetype", "attachment"]
+    fields_list = [ "summary", "description", "status", "priority", "assignee", "issuetype", "attachment" ]
     fields_list << @acceptance_criteria_field if @acceptance_criteria_field.present?
     fields_list << @technical_writeup_field if @technical_writeup_field.present?
-    
+
     params = {
       fields: fields_list.join(","),
       expand: "renderedFields"
     }
-    
+
     response = HTTParty.get(
       url,
       basic_auth: { username: @email, password: @api_token },
-      headers: { 'Content-Type' => 'application/json' },
+      headers: { "Content-Type" => "application/json" },
       query: params
     )
 
@@ -161,7 +161,7 @@ class JiraService
       response = HTTParty.get(
         url,
         basic_auth: { username: @email, password: @api_token },
-        headers: { 'Content-Type' => 'application/json' },
+        headers: { "Content-Type" => "application/json" },
         query: params
       )
 
@@ -170,7 +170,7 @@ class JiraService
       end
 
       data = response.parsed_response
-      sprints = data['values'] || []
+      sprints = data["values"] || []
 
       Rails.logger.info("Found #{sprints.count} sprints in this batch:")
       sprints.each do |s|
@@ -178,14 +178,14 @@ class JiraService
       end
 
       # Look for sprint with matching name (case-insensitive)
-      sprint = sprints.find { |s| s['name'].downcase == sprint_name.downcase }
+      sprint = sprints.find { |s| s["name"].downcase == sprint_name.downcase }
       if sprint
         Rails.logger.info("✓ Matched sprint: '#{sprint['name']}' (ID: #{sprint['id']})")
-        return sprint['id']
+        return sprint["id"]
       end
 
       # Check if there are more results
-      is_last = data['isLast']
+      is_last = data["isLast"]
       break if is_last
 
       start_at += max_results
@@ -196,11 +196,11 @@ class JiraService
 
   def parse_issue_data(issue_data)
     # Similar to parse_ticket_response but takes issue data directly
-    data = { 'key' => issue_data['key'], 'fields' => issue_data['fields'] }
+    data = { "key" => issue_data["key"], "fields" => issue_data["fields"] }
 
     # Add renderedFields if present
-    if issue_data['renderedFields']
-      data['renderedFields'] = issue_data['renderedFields']
+    if issue_data["renderedFields"]
+      data["renderedFields"] = issue_data["renderedFields"]
     end
 
     # Get attachments first so we can build UUID -> ID lookup for inline images
@@ -215,7 +215,7 @@ class JiraService
 
     # Try to get acceptance criteria from custom field if configured
     acceptance_criteria = if @acceptance_criteria_field.present?
-      field_value = data.dig('fields', @acceptance_criteria_field)
+      field_value = data.dig("fields", @acceptance_criteria_field)
       extract_field_value(field_value)
     else
       sections[:acceptance_criteria]
@@ -223,23 +223,23 @@ class JiraService
 
     # Try to get technical writeup from custom field if configured
     technical_writeup = if @technical_writeup_field.present?
-      field_value = data.dig('fields', @technical_writeup_field)
+      field_value = data.dig("fields", @technical_writeup_field)
       extract_field_value(field_value)
     else
       sections[:technical_writeup]
     end
 
     {
-      key: data['key'],
-      summary: data.dig('fields', 'summary'),
+      key: data["key"],
+      summary: data.dig("fields", "summary"),
       description: sections[:description] || raw_description,
       acceptance_criteria: acceptance_criteria,
       technical_writeup: technical_writeup,
       attachments: attachments,
-      status: data.dig('fields', 'status', 'name'),
-      priority: data.dig('fields', 'priority', 'name'),
-      assignee: data.dig('fields', 'assignee', 'displayName'),
-      issue_type: data.dig('fields', 'issuetype', 'name'),
+      status: data.dig("fields", "status", "name"),
+      priority: data.dig("fields", "priority", "name"),
+      assignee: data.dig("fields", "assignee", "displayName"),
+      issue_type: data.dig("fields", "issuetype", "name"),
       formatted_title: "#{data['key']}: #{data.dig('fields', 'summary')}"
     }
   end
@@ -249,11 +249,11 @@ class JiraService
     missing << "base_url" unless @base_url.present?
     missing << "email" unless @email.present?
     missing << "api_token" unless @api_token.present?
-    
+
     if missing.any?
       raise JiraError, "Missing JIRA credentials: #{missing.join(', ')}. Please configure in credentials.yml"
     end
-    
+
     # Project and board_id are optional but recommended
     Rails.logger.warn("JIRA project not configured") unless @project.present?
     Rails.logger.warn("JIRA board_id not configured") unless @board_id.present?
@@ -261,7 +261,7 @@ class JiraService
 
   def extract_ticket_key(input)
     return nil if input.blank?
-    
+
     # If it's a full URL, extract the ticket key
     if input.match?(/https?:\/\//)
       # Match patterns like: /browse/PROJ-123 or /issues/PROJ-123
@@ -275,17 +275,17 @@ class JiraService
 
   def parse_ticket_response(response)
     data = response.parsed_response
-    
+
     # Get attachments first so we can build UUID -> ID lookup for inline images
     attachments = extract_attachments(data)
     @attachment_lookup = build_attachment_lookup(attachments)
-    
+
     # Get description (might be in different formats)
     raw_description = extract_description(data)
-    
+
     # Parse sections from description
     sections = parse_description_sections(raw_description)
-    
+
     # Try to get acceptance criteria from custom field if configured
     acceptance_criteria = if @acceptance_criteria_field.present?
       field_value = data.dig("fields", @acceptance_criteria_field)
@@ -293,7 +293,7 @@ class JiraService
     else
       sections[:acceptance_criteria]
     end
-    
+
     # Try to get technical writeup from custom field if configured
     technical_writeup = if @technical_writeup_field.present?
       field_value = data.dig("fields", @technical_writeup_field)
@@ -301,7 +301,7 @@ class JiraService
     else
       sections[:technical_writeup]
     end
-    
+
     {
       key: data["key"],
       summary: data.dig("fields", "summary"),
@@ -326,7 +326,7 @@ class JiraService
     if rendered_description.present?
       return sanitize_jira_html(rendered_description)
     end
-    
+
     # Fall back to parsing ADF ourselves
     description_field = data.dig("fields", "description")
     extract_field_value(description_field)
@@ -334,27 +334,27 @@ class JiraService
 
   def sanitize_jira_html(html)
     return nil if html.blank?
-    
+
     # Rewrite JIRA image URLs to use our proxy
     processed_html = rewrite_jira_image_urls(html)
-    
+
     # Sanitize but allow images, links, and common HTML
     allowed_tags = %w[p h1 h2 h3 h4 h5 h6 br hr ul ol li a img strong em code pre blockquote table tr td th thead tbody div span]
     allowed_attributes = {
-      'a' => ['href', 'target', 'rel'],
-      'img' => ['src', 'alt', 'class', 'style', 'width', 'height', 'loading'],
-      'td' => ['colspan', 'rowspan'],
-      'th' => ['colspan', 'rowspan'],
-      'div' => ['class'],
-      'span' => ['class', 'style']
+      "a" => [ "href", "target", "rel" ],
+      "img" => [ "src", "alt", "class", "style", "width", "height", "loading" ],
+      "td" => [ "colspan", "rowspan" ],
+      "th" => [ "colspan", "rowspan" ],
+      "div" => [ "class" ],
+      "span" => [ "class", "style" ]
     }
-    
+
     ActionController::Base.helpers.sanitize(processed_html, tags: allowed_tags, attributes: allowed_attributes)
   end
 
   def rewrite_jira_image_urls(html)
     return html if html.blank?
-    
+
     # Match JIRA attachment URLs and rewrite to use our proxy
     # Pattern: /rest/api/3/attachment/content/12345 or /secure/attachment/12345/filename.png
     html.gsub(%r{(?:https?://[^/]+)?/(?:rest/api/3/attachment/content|secure/attachment)/(\d+)(?:/[^"'>\s]*)?}i) do |_match|
@@ -379,16 +379,16 @@ class JiraService
 
   def extract_attachments(data)
     attachments = data.dig("fields", "attachment") || []
-    
+
     attachments.map do |attachment|
       content_url = attachment["content"]
-      
+
       # Convert relative URL to absolute URL if needed
       if content_url && !content_url.start_with?("http")
         content_url = "#{@base_url}#{content_url}" unless content_url.start_with?("/")
         content_url = "#{@base_url}/#{content_url}" if content_url.start_with?("/")
       end
-      
+
       {
         id: attachment["id"],
         media_api_file_id: attachment["mediaApiFileId"],  # UUID used in ADF media nodes
@@ -408,7 +408,7 @@ class JiraService
 
   def extract_field_value(field_value)
     return nil if field_value.blank?
-    
+
     # JIRA API v3 returns fields in Atlassian Document Format (ADF)
     # which is a JSON structure. We need to convert it to HTML.
     if field_value.is_a?(Hash)
@@ -420,31 +420,31 @@ class JiraService
 
   def extract_html_from_adf(adf_content)
     return "" unless adf_content.is_a?(Hash)
-    
+
     content = adf_content["content"] || []
-    
+
     html_parts = content.map do |node|
       extract_html_from_node(node)
     end
-    
+
     html_parts.join("\n")
   end
 
   def extract_html_from_node(node)
     return "" unless node.is_a?(Hash)
-    
+
     case node["type"]
     when "paragraph"
       content = node["content"] || []
       text = content.map { |n| extract_html_from_node(n) }.join
       text.present? ? "<p>#{text}</p>" : ""
-      
+
     when "heading"
       level = node.dig("attrs", "level") || 1
       content = node["content"] || []
       text = content.map { |n| extract_html_from_node(n) }.join
       "<h#{level}>#{text}</h#{level}>"
-      
+
     when "text"
       text = ActionController::Base.helpers.sanitize(node["text"] || "")
       # Handle text marks (bold, italic, etc.)
@@ -477,55 +477,55 @@ class JiraService
         end
       end
       text
-      
+
     when "bulletList"
       items = node["content"] || []
       items_html = items.map { |item| extract_html_from_node(item) }.join
       "<ul>#{items_html}</ul>"
-      
+
     when "orderedList"
       items = node["content"] || []
       items_html = items.map { |item| extract_html_from_node(item) }.join
       "<ol>#{items_html}</ol>"
-      
+
     when "listItem"
       content = node["content"] || []
       content_html = content.map { |n| extract_html_from_node(n) }.join
       "<li>#{content_html}</li>"
-      
+
     when "codeBlock"
       content = node["content"] || []
       code = content.map { |n| extract_html_from_node(n) }.join
       language = normalize_language(node.dig("attrs", "language"))
       "<pre class='language-#{language}'><code class='language-#{language}'>#{ActionController::Base.helpers.sanitize(code)}</code></pre>"
-      
+
     when "blockquote"
       content = node["content"] || []
       content_html = content.map { |n| extract_html_from_node(n) }.join
       "<blockquote>#{content_html}</blockquote>"
-      
+
     when "hardBreak"
       "<br>"
-      
+
     when "rule"
       "<hr>"
 
     when "media"
       # Handle JIRA images and media
       extract_media_html(node)
-      
+
     when "mediaGroup"
       # Handle groups of media (like image galleries)
       content = node["content"] || []
       media_html = content.map { |n| extract_html_from_node(n) }.join
       "<div class='media-group'>#{media_html}</div>"
-      
+
     when "mediaSingle"
       # Handle single media items
       content = node["content"] || []
       media_html = content.map { |n| extract_html_from_node(n) }.join
       "<div class='media-single'>#{media_html}</div>"
-      
+
     # Table support - wrap in scrollable container
     when "table"
       rows = node["content"] || []
@@ -601,16 +601,16 @@ class JiraService
     media_id = attrs["id"]
     # Use .presence to handle empty strings - collection is often "" which is truthy
     file_name = attrs["collection"].presence || attrs["alt"].presence || "attachment"
-    
+
     # Look up numeric ID from UUID if available
     numeric_id = resolve_attachment_id(media_id, file_name)
-    
+
     case media_type
     when "file"
       # Use proxy URL with numeric ID for authenticated JIRA images
       if numeric_id.present?
         proxy_url = "/jira_images/#{numeric_id}"
-        
+
         # Check if it's an image by file extension
         if image_file?(file_name)
           alt_text = ActionController::Base.helpers.sanitize(attrs["alt"] || file_name)
@@ -622,7 +622,7 @@ class JiraService
       else
         "<div class='jira-media-unknown'>[Attachment: #{ActionController::Base.helpers.sanitize(file_name)}]</div>"
       end
-      
+
     when "external"
       # Handle external media URLs (no auth needed)
       url = attrs["url"]
@@ -632,7 +632,7 @@ class JiraService
       else
         "<div class='jira-external-media'><a href='#{ActionController::Base.helpers.sanitize(url)}' target='_blank'>🔗 External Media</a></div>"
       end
-      
+
     else
       # Fallback for unknown media types - try to resolve ID and use proxy
       if numeric_id.present?
@@ -654,19 +654,19 @@ class JiraService
   def resolve_attachment_id(media_id, file_name)
     return nil if media_id.blank? && file_name.blank?
     return media_id if media_id.present? && media_id.match?(/^\d+$/)  # Already numeric
-    
+
     # Try to look up by UUID
     if @attachment_lookup && media_id.present?
       resolved = @attachment_lookup[media_id]
       return resolved if resolved.present?
     end
-    
+
     # Try to look up by filename
     if @attachment_lookup && file_name.present?
       resolved = @attachment_lookup[file_name]
       return resolved if resolved.present?
     end
-    
+
     nil
   end
 
@@ -682,7 +682,7 @@ class JiraService
 
   def normalize_language(lang)
     return "plaintext" if lang.blank?
-    
+
     # Map JIRA language names to Prism.js language names
     mappings = {
       "sh" => "bash",
@@ -701,30 +701,30 @@ class JiraService
       "c#" => "csharp",
       "c++" => "cpp"
     }
-    
+
     normalized = lang.downcase.strip
     mappings[normalized] || normalized
   end
 
   def parse_description_sections(description)
     return { description: description } if description.blank?
-    
+
     sections = {
       description: "",
       acceptance_criteria: nil,
       technical_writeup: nil
     }
-    
+
     # Common section headers (case-insensitive)
     # Look for headers in HTML or plain text
     ac_pattern = /<h[1-6]>.*?(acceptance criteria|ac|acceptance).*?<\/h[1-6]>|(?:^|\n)(?:acceptance criteria|ac|acceptance)\s*:?\s*\n/i
     tech_pattern = /<h[1-6]>.*?(technical writeup|technical details|tech writeup|implementation|technical notes).*?<\/h[1-6]>|(?:^|\n)(?:technical writeup|technical details|tech writeup|implementation|technical notes)\s*:?\s*\n/i
-    
+
     # Split by acceptance criteria
     if description =~ ac_pattern
       parts = description.split(ac_pattern, 2)
       sections[:description] = parts[0].strip
-      
+
       # Now split the rest by technical writeup
       remaining = parts[-1] # Get last part after split
       if remaining =~ tech_pattern
@@ -743,7 +743,7 @@ class JiraService
       # No sections found, everything is description
       sections[:description] = description.strip
     end
-    
+
     sections
   end
 

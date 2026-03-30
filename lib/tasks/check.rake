@@ -4,13 +4,13 @@ namespace :monitor do
   task session: :environment do
     puts "Monitoring Planning Poker Session (Ctrl+C to stop)"
     puts "=" * 60
-    
+
     last_version = -1
     last_vote_count = 0
-    
+
     loop do
       state = EstimationSessionStore.get_broadcast_state
-      
+
       # Only print if something changed
       if state[:version] != last_version || state[:votes].count != last_vote_count
         puts "\n[#{Time.current.strftime('%H:%M:%S')}]"
@@ -20,21 +20,21 @@ namespace :monitor do
         puts "  Revealed: #{state[:revealed]}"
         puts "  Connected: #{state[:connected_count]}"
         puts "  Voted: #{state[:voted_count]}/#{state[:connected_count]}"
-        
+
         last_version = state[:version]
         last_vote_count = state[:votes].count
       end
-      
+
       sleep 1
     end
   end
-  
+
   desc "Test broadcast functionality"
   task broadcast_test: :environment do
     puts "Broadcasting test message..."
-    
+
     state = EstimationSessionStore.get_broadcast_state
-    
+
     ActionCable.server.broadcast(
       "estimation_session",
       {
@@ -42,7 +42,7 @@ namespace :monitor do
         state: state
       }
     )
-    
+
     puts "✓ Broadcast sent"
     puts "Check browser consoles for '[WebSocket] Received' message"
   end

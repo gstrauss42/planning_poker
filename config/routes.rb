@@ -4,7 +4,7 @@ Rails.application.routes.draw do
 
   # Main app
   root "estimations#index"
-  
+
   # API endpoints
   post "estimations/submit"
   post "estimations/reveal"
