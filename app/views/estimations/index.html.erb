@@ -706,22 +706,178 @@
       color: #c62828;
       font-style: italic;
     }
+    /* Tickets Sidebar Styles */
+    .tickets-sidebar {
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 320px;
+      height: 100vh;
+      background: white;
+      border-right: 2px solid #ddd;
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+      box-shadow: 2px 0 8px rgba(0,0,0,0.1);
+    }
+    .sidebar-header {
+      padding: 20px;
+      border-bottom: 2px solid #2196F3;
+      background: #e3f2fd;
+    }
+    .sidebar-header h3 {
+      margin: 0 0 8px 0;
+      color: #2196F3;
+      font-size: 18px;
+    }
+    .tickets-count {
+      font-size: 14px;
+      color: #666;
+      font-weight: 500;
+    }
+    .tickets-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+    }
+    .ticket-item {
+      padding: 12px;
+      margin-bottom: 8px;
+      background: #f9f9f9;
+      border-radius: 6px;
+      border-left: 4px solid #ddd;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .ticket-item:hover {
+      background: #f0f7ff;
+      border-left-color: #2196F3;
+      transform: translateX(4px);
+    }
+    .ticket-item.active {
+      background: #e3f2fd;
+      border-left-color: #2196F3;
+      box-shadow: 0 2px 6px rgba(33, 150, 243, 0.3);
+    }
+    .ticket-item-key {
+      font-weight: 600;
+      color: #2196F3;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+    .ticket-item-summary {
+      font-size: 13px;
+      color: #555;
+      line-height: 1.4;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+    .ticket-item-status {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 6px;
+      font-size: 11px;
+      color: #999;
+    }
+    .ticket-item-votes {
+      background: #4CAF50;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .ticket-item-votes.revealed {
+      background: #2196F3;
+    }
+    .ticket-navigation {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: center;
+      margin: 20px 0;
+      padding: 16px;
+      background: #f5f5f5;
+      border-radius: 8px;
+    }
+    .nav-button {
+      padding: 10px 20px;
+      background: #2196F3;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.2s;
+      min-width: 100px;
+    }
+    .nav-button:hover:not(:disabled) {
+      background: #0b7dda;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 6px rgba(33, 150, 243, 0.4);
+    }
+    .nav-button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+    .ticket-position {
+      font-size: 16px;
+      font-weight: 600;
+      color: #666;
+      min-width: 80px;
+      text-align: center;
+    }
+    body {
+      margin-left: 320px;
+    }
+    .container {
+      margin-left: 0;
+    }
   </style>
 </head>
 <body>
   <div class="status-indicator" id="statusIndicator">Connected</div>
-  
+
+  <!-- Tickets Sidebar -->
+  <div class="tickets-sidebar" id="ticketsSidebar">
+    <div class="sidebar-header">
+      <h3>Sprint Tickets</h3>
+      <span class="tickets-count" id="ticketsCount">0 tickets</span>
+    </div>
+    <div class="tickets-list" id="ticketsList">
+      <div style="text-align: center; padding: 40px 20px; color: #999; font-style: italic;">
+        Load tickets from sprint to begin
+      </div>
+    </div>
+  </div>
+
   <div class="container">
     <h1>DataBaes Estimations</h1>
 
     <div class="ticket-section">
       <div class="jira-input-group">
-        <input type="text" id="jiraTicket" placeholder="Enter JIRA ticket key (e.g., PROJ-123) or URL" />
-        <button id="fetchJiraBtn" class="fetch-jira">Fetch from JIRA</button>
+        <input type="text" id="sprintName" placeholder="Sprint name" value="Refinement & Estimations" style="flex: 0.8;" />
+        <button id="fetchSprintBtn" class="fetch-jira">Load Sprint</button>
       </div>
-      
+      <div class="jira-input-group" style="margin-top: 10px;">
+        <input type="text" id="jiraTicket" placeholder="Or enter single ticket key (e.g., PROJ-123) or URL" />
+        <button id="fetchJiraBtn" class="fetch-jira">Fetch Ticket</button>
+      </div>
+
+      <!-- Ticket Navigation Controls -->
+      <div class="ticket-navigation" id="ticketNavigation" style="display: none;">
+        <button id="prevTicketBtn" class="nav-button" disabled>← Previous</button>
+        <span class="ticket-position" id="ticketPosition">0 / 0</span>
+        <button id="nextTicketBtn" class="nav-button" disabled>Next →</button>
+      </div>
+
       <div class="ticket-display empty" id="ticketDisplay">
-        <span>No ticket loaded - Enter a JIRA ticket to begin</span>
+        <span>No ticket loaded - Load sprint or enter a JIRA ticket to begin</span>
       </div>
     </div>
 
@@ -765,6 +921,10 @@
       revealed: false,
       ticketData: null,
       ticketId: null,
+      tickets: [],
+      currentTicketIndex: 0,
+      votesByTicket: {},
+      revealedByTicket: {},
       connectedCount: 0,
       votedCount: 0,
       version: 0,
@@ -884,24 +1044,28 @@
         state.revealed = serverState.revealed || false;
         state.ticketData = serverState.ticket_data || null;
         state.ticketId = serverState.ticket_id || null;
+        state.tickets = serverState.tickets || [];
+        state.currentTicketIndex = serverState.current_ticket_index || 0;
+        state.votesByTicket = serverState.votes_by_ticket || {};
+        state.revealedByTicket = serverState.revealed_by_ticket || {};
         state.connectedCount = serverState.connected_count || 0;
         state.votedCount = serverState.voted_count || 0;
         state.version = serverState.version || 0;
         state.lastUpdated = serverState.last_updated || Date.now();
         state.sessionHealth = serverState.session_health || 100;
-        
+
         console.log(`[Sync] Updated client state:`, state);
-        
+
         // Update UI
         renderAll();
-        
+
         // Show appropriate status message
         if (changeAction && state.version > 0) {
           showStatusForAction(changeAction);
         }
-        
+
         console.log(`[Sync] State updated successfully to version ${state.version}`);
-        
+
       } catch (error) {
         console.error(`[Sync] Error updating state: ${error.message}`);
         // Rollback to previous state
@@ -915,6 +1079,12 @@
       switch (action) {
         case 'ticket_set':
           showStatus("Ticket loaded");
+          break;
+        case 'tickets_loaded':
+          showStatus(`${state.tickets.length} tickets loaded from sprint`);
+          break;
+        case 'ticket_changed':
+          showStatus("Navigated to ticket");
           break;
         case 'vote_added':
           showStatus("Vote recorded");
@@ -1161,10 +1331,122 @@
         });
     }
 
+    function renderTicketsSidebar() {
+      const list = document.getElementById("ticketsList");
+      const count = document.getElementById("ticketsCount");
+      const navigation = document.getElementById("ticketNavigation");
+
+      if (!state.tickets || state.tickets.length === 0) {
+        list.innerHTML = '<div style="text-align: center; padding: 40px 20px; color: #999; font-style: italic;">Load tickets from sprint to begin</div>';
+        count.textContent = "0 tickets";
+        navigation.style.display = "none";
+        return;
+      }
+
+      count.textContent = `${state.tickets.length} ticket${state.tickets.length !== 1 ? 's' : ''}`;
+      navigation.style.display = "flex";
+
+      let html = state.tickets.map((ticket, index) => {
+        const isActive = index === state.currentTicketIndex;
+        const ticketVotes = state.votesByTicket[ticket.key] || {};
+        const voteCount = Object.keys(ticketVotes).length;
+        const isRevealed = state.revealedByTicket[ticket.key] || false;
+
+        let statusHtml = '';
+        if (voteCount > 0) {
+          statusHtml = `<span class="ticket-item-votes${isRevealed ? ' revealed' : ''}">${voteCount} vote${voteCount !== 1 ? 's' : ''}${isRevealed ? ' ✓' : ''}</span>`;
+        }
+
+        return `
+          <div class="ticket-item${isActive ? ' active' : ''}" data-index="${index}" onclick="navigateToTicketByIndex(${index})">
+            <div class="ticket-item-key">${escapeHtml(ticket.key)}</div>
+            <div class="ticket-item-summary">${escapeHtml(ticket.summary)}</div>
+            <div class="ticket-item-status">
+              <span>${index + 1} of ${state.tickets.length}</span>
+              ${statusHtml}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      list.innerHTML = html;
+      updateNavigationButtons();
+    }
+
+    function updateNavigationButtons() {
+      const prevBtn = document.getElementById("prevTicketBtn");
+      const nextBtn = document.getElementById("nextTicketBtn");
+      const position = document.getElementById("ticketPosition");
+
+      if (!state.tickets || state.tickets.length === 0) {
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+        position.textContent = "0 / 0";
+        return;
+      }
+
+      const current = state.currentTicketIndex + 1;
+      const total = state.tickets.length;
+      position.textContent = `${current} / ${total}`;
+
+      prevBtn.disabled = state.currentTicketIndex <= 0;
+      nextBtn.disabled = state.currentTicketIndex >= state.tickets.length - 1;
+    }
+
+    async function navigateToTicketByIndex(index) {
+      if (index === state.currentTicketIndex) return;
+      if (index < 0 || index >= state.tickets.length) return;
+
+      if (!state.isConnected) {
+        showStatus("Not connected. Please wait for connection.", true);
+        return;
+      }
+
+      if (state.pendingOperations.has('navigate')) {
+        showStatus("Navigation already in progress. Please wait.", true);
+        return;
+      }
+
+      state.pendingOperations.add('navigate');
+
+      try {
+        const response = await fetch("/estimations/navigate_ticket", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrfToken
+          },
+          body: JSON.stringify({
+            index: index,
+            expected_version: state.version
+          })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          if (result.requires_refresh) {
+            showStatus("Session state changed. Refreshing...", true);
+            requestStateSync();
+          } else {
+            throw new Error(result.error || "Failed to navigate");
+          }
+        }
+      } catch (error) {
+        console.error(`[Navigation] Error: ${error.message}`);
+        showStatus(error.message, true);
+      } finally {
+        state.pendingOperations.delete('navigate');
+      }
+    }
+
+    window.navigateToTicketByIndex = navigateToTicketByIndex;
+
     function renderAll() {
       renderTicket();
       renderVotes();
       updatePresenceBadge();
+      renderTicketsSidebar();
     }
 
     // Enhanced WebSocket subscription with robust error handling
@@ -1355,6 +1637,48 @@
     }
 
     // Enhanced event handlers with version checking and retry logic
+    document.getElementById("fetchSprintBtn").addEventListener("click", async () => {
+      const sprintName = document.getElementById("sprintName").value.trim();
+      const btn = document.getElementById("fetchSprintBtn");
+
+      if (!sprintName) {
+        alert("Please enter a sprint name");
+        return;
+      }
+
+      if (!state.isConnected) {
+        showStatus("Not connected. Please wait for connection.", true);
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "Loading...";
+
+      try {
+        const response = await fetch("/estimations/fetch_sprint_tickets", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrfToken
+          },
+          body: JSON.stringify({ sprint_name: sprintName })
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || "Failed to fetch sprint tickets");
+        }
+
+        showStatus(result.message);
+      } catch (error) {
+        console.error(`[Sprint] Error: ${error.message}`);
+        showStatus(error.message, true);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Load Sprint";
+      }
+    });
+
     document.getElementById("fetchJiraBtn").addEventListener("click", async () => {
       const jiraInput = document.getElementById("jiraTicket").value.trim();
       const btn = document.getElementById("fetchJiraBtn");
@@ -1394,7 +1718,46 @@
         showStatus(error.message, true);
       } finally {
         btn.disabled = false;
-        btn.textContent = "Fetch from JIRA";
+        btn.textContent = "Fetch Ticket";
+      }
+    });
+
+    // Navigation button handlers
+    document.getElementById("prevTicketBtn").addEventListener("click", () => {
+      const newIndex = state.currentTicketIndex - 1;
+      if (newIndex >= 0) {
+        navigateToTicketByIndex(newIndex);
+      }
+    });
+
+    document.getElementById("nextTicketBtn").addEventListener("click", () => {
+      const newIndex = state.currentTicketIndex + 1;
+      if (newIndex < state.tickets.length) {
+        navigateToTicketByIndex(newIndex);
+      }
+    });
+
+    // Keyboard shortcuts for navigation
+    document.addEventListener("keydown", (e) => {
+      // Only handle if not in an input field
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+        return;
+      }
+
+      if (state.tickets.length === 0) return;
+
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const newIndex = state.currentTicketIndex - 1;
+        if (newIndex >= 0) {
+          navigateToTicketByIndex(newIndex);
+        }
+      } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const newIndex = state.currentTicketIndex + 1;
+        if (newIndex < state.tickets.length) {
+          navigateToTicketByIndex(newIndex);
+        }
       }
     });
 

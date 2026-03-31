@@ -15,31 +15,31 @@ class AtomicStateManager
   class << self
     def redis
       return @redis if @redis
-      
+
       Rails.logger.info "[AtomicState] Initializing Redis connection pool to: #{redis_url}"
-      
+
       begin
         # Create Redis connection pool to prevent connection leaks
-        require 'connection_pool'
-        
+        require "connection_pool"
+
         @redis = ConnectionPool.new(size: 5, timeout: 5) do
           Redis.new(
-            url: redis_url, 
+            url: redis_url,
             timeout: 5,
             reconnect_attempts: 3
           )
         end
-        
+
         # Test connection immediately
         Rails.logger.info "[AtomicState] Testing Redis connection..."
         @redis.with do |conn|
           ping_result = conn.ping
           Rails.logger.info "[AtomicState] Redis ping result: #{ping_result}"
         end
-        
+
         # Clean up any stale locks on startup
         cleanup_stale_locks
-        
+
         @redis
       rescue StandardError => e
         Rails.logger.error "=" * 80
@@ -95,9 +95,9 @@ class AtomicStateManager
 
     def redis_available?
       Rails.logger.debug "[AtomicState] Checking Redis availability..."
-      
+
       return false unless redis
-      
+
       begin
         start_time = Time.current
         ping_result = nil
@@ -105,9 +105,9 @@ class AtomicStateManager
           ping_result = conn.ping
         end
         latency = ((Time.current - start_time) * 1000).round(2)
-        
+
         Rails.logger.debug "[AtomicState] Redis ping: #{ping_result}, latency: #{latency}ms"
-        
+
         if ping_result == "PONG"
           Rails.logger.debug "[AtomicState] Redis is available"
           true
@@ -138,14 +138,14 @@ class AtomicStateManager
             Rails.logger.debug "[AtomicState] Lock acquired for #{operation_name}"
             result = block.call
             Rails.logger.info "[AtomicState] #{operation_name} completed with Redis"
-            return result
+            result
           else
             Rails.logger.warn "[AtomicState] Lock timeout for #{operation_name}, using fallback"
-            return fallback_update(operation_name, &block)
+            fallback_update(operation_name, &block)
           end
         rescue StandardError => e
           Rails.logger.warn "[AtomicState] Redis error in #{operation_name}: #{e.message}, using fallback"
-          return fallback_update(operation_name, &block)
+          fallback_update(operation_name, &block)
         ensure
           # Always release lock if we acquired it
           if lock_acquired && redis_available?
@@ -155,13 +155,13 @@ class AtomicStateManager
         end
       else
         Rails.logger.warn "[AtomicState] Redis unavailable, using fallback for #{operation_name}"
-        return fallback_update(operation_name, &block)
+        fallback_update(operation_name, &block)
       end
     end
 
     def fallback_update(operation_name, &block)
       Rails.logger.warn "[AtomicState] Using fallback for #{operation_name}"
-      
+
       begin
         result = block.call
         Rails.logger.info "[AtomicState] #{operation_name} completed via fallback"
@@ -203,9 +203,94 @@ class AtomicStateManager
         new_state[:revealed] = false
         new_state[:version] = current_state[:version] + 1
         new_state[:last_updated] = Time.current.to_i
-        
+
         save_state(new_state)
         broadcast_state_change("ticket_set", new_state)
+        new_state
+      end
+    end
+
+    # Set multiple tickets and initialize multi-ticket state
+    def set_tickets(tickets_array)
+      atomic_update("set_tickets") do
+        current_state = get_state
+        new_state = current_state.dup
+
+        # Store array of all tickets
+        new_state[:tickets] = tickets_array
+        new_state[:current_ticket_index] = 0
+
+        # Initialize votes_by_ticket if not present
+        new_state[:votes_by_ticket] ||= {}
+        new_state[:revealed_by_ticket] ||= {}
+
+        # Set current ticket to first in array
+        if tickets_array.any?
+          first_ticket = tickets_array[0]
+          new_state[:ticket_data] = first_ticket
+          new_state[:ticket_title] = first_ticket[:formatted_title]
+          new_state[:ticket_id] = first_ticket[:key]
+
+          # Load votes for this ticket if any
+          new_state[:votes] = new_state[:votes_by_ticket][first_ticket[:key]] || {}
+          new_state[:revealed] = new_state[:revealed_by_ticket][first_ticket[:key]] || false
+        else
+          new_state[:ticket_data] = nil
+          new_state[:ticket_title] = nil
+          new_state[:ticket_id] = nil
+          new_state[:votes] = {}
+          new_state[:revealed] = false
+        end
+
+        new_state[:version] = current_state[:version] + 1
+        new_state[:last_updated] = Time.current.to_i
+
+        save_state(new_state)
+        broadcast_state_change("tickets_loaded", new_state)
+        new_state
+      end
+    end
+
+    # Navigate to a specific ticket by index
+    def set_current_ticket(index, expected_version = nil)
+      atomic_update("set_current_ticket") do
+        current_state = get_state
+
+        # Version conflict check
+        if expected_version && current_state[:version] != expected_version
+          raise VersionConflictError, "Version mismatch: expected #{expected_version}, got #{current_state[:version]}"
+        end
+
+        tickets = current_state[:tickets] || []
+        return current_state if tickets.empty? || index < 0 || index >= tickets.length
+
+        new_state = current_state.dup
+
+        # Save current ticket's votes before switching
+        if current_state[:ticket_id]
+          new_state[:votes_by_ticket] = (current_state[:votes_by_ticket] || {}).dup
+          new_state[:votes_by_ticket][current_state[:ticket_id]] = current_state[:votes]
+
+          new_state[:revealed_by_ticket] = (current_state[:revealed_by_ticket] || {}).dup
+          new_state[:revealed_by_ticket][current_state[:ticket_id]] = current_state[:revealed]
+        end
+
+        # Switch to new ticket
+        new_state[:current_ticket_index] = index
+        new_ticket = tickets[index]
+        new_state[:ticket_data] = new_ticket
+        new_state[:ticket_title] = new_ticket[:formatted_title]
+        new_state[:ticket_id] = new_ticket[:key]
+
+        # Load votes for new ticket
+        new_state[:votes] = new_state[:votes_by_ticket][new_ticket[:key]] || {}
+        new_state[:revealed] = new_state[:revealed_by_ticket][new_ticket[:key]] || false
+
+        new_state[:version] = current_state[:version] + 1
+        new_state[:last_updated] = Time.current.to_i
+
+        save_state(new_state)
+        broadcast_state_change("ticket_changed", new_state)
         new_state
       end
     end
@@ -213,21 +298,21 @@ class AtomicStateManager
     def add_vote(user_name, points, expected_version = nil)
       atomic_update("add_vote") do
         current_state = get_state
-        
+
         # Version conflict check
         if expected_version && current_state[:version] != expected_version
           raise VersionConflictError, "Version mismatch: expected #{expected_version}, got #{current_state[:version]}"
         end
-        
+
         new_state = current_state.dup
         new_state[:votes] = current_state[:votes].dup
         new_state[:votes][user_name] = points
         new_state[:version] = current_state[:version] + 1
         new_state[:last_updated] = Time.current.to_i
-        
+
         # Note: User-connection mapping is handled automatically when users connect
         # via the add_connection method, so we don't need to update it here
-        
+
         save_state(new_state)
         broadcast_state_change("vote_added", new_state)
         new_state
@@ -237,18 +322,18 @@ class AtomicStateManager
     def reveal_votes(expected_version = nil)
       atomic_update("reveal_votes") do
         current_state = get_state
-        
+
         if expected_version && current_state[:version] != expected_version
           raise VersionConflictError, "Version mismatch: expected #{expected_version}, got #{current_state[:version]}"
         end
-        
+
         return current_state if current_state[:votes].empty?
-        
+
         new_state = current_state.dup
         new_state[:revealed] = true
         new_state[:version] = current_state[:version] + 1
         new_state[:last_updated] = Time.current.to_i
-        
+
         save_state(new_state)
         broadcast_state_change("votes_revealed", new_state)
         new_state
@@ -257,24 +342,24 @@ class AtomicStateManager
 
     def clear_votes(expected_version = nil)
       Rails.logger.info "[AtomicState] clear_votes called with expected_version: #{expected_version}"
-      
+
       atomic_update("clear_votes") do
         current_state = get_state
         Rails.logger.info "[AtomicState] Current state version: #{current_state[:version]}, votes count: #{current_state[:votes]&.count || 0}"
-        
+
         if expected_version && current_state[:version] != expected_version
           Rails.logger.warn "[AtomicState] Version conflict: expected #{expected_version}, got #{current_state[:version]}"
           raise VersionConflictError, "Version mismatch: expected #{expected_version}, got #{current_state[:version]}"
         end
-        
+
         new_state = current_state.dup
         new_state[:votes] = {}
         new_state[:revealed] = false
         new_state[:version] = current_state[:version] + 1
         new_state[:last_updated] = Time.current.to_i
-        
+
         Rails.logger.info "[AtomicState] New state version: #{new_state[:version]}, votes cleared"
-        
+
         save_state(new_state)
         broadcast_state_change("votes_cleared", new_state)
         new_state
@@ -334,7 +419,7 @@ class AtomicStateManager
           presence[connection_id][:last_seen] = Time.current.to_i
           presence[connection_id][:heartbeat_count] += 1
           save_presence(presence)
-          
+
           # Cleanup every 50 heartbeats (less frequent to reduce server load)
           if presence[connection_id][:heartbeat_count] % 50 == 0
             cleanup_stale_connections
@@ -361,14 +446,14 @@ class AtomicStateManager
           end
           with_redis { |conn| conn.setex(cleanup_key, 120, Time.current.to_i) }
         end
-        
+
         presence = get_presence
         current_time = Time.current.to_i
-        
+
         stale_connections = presence.select do |_id, data|
           current_time - data[:last_seen] > PRESENCE_EXPIRY
         end
-        
+
         if stale_connections.any?
           stale_connections.each do |id, data|
             Rails.logger.info "[AtomicState] Cleaning up stale connection: #{id} (user: #{data[:user_name]})"
@@ -376,7 +461,7 @@ class AtomicStateManager
           end
           save_presence(presence)
         end
-        
+
         presence
       rescue StandardError => e
         Rails.logger.error "[AtomicState] Cleanup error: #{e.message}"
@@ -389,7 +474,7 @@ class AtomicStateManager
       # Find the most recent connection (assuming it's the current user)
       presence = get_presence
       most_recent_connection = presence.max_by { |_id, data| data[:last_seen] }
-      
+
       if most_recent_connection
         connection_id, data = most_recent_connection
         data[:user_name] = user_name
@@ -415,26 +500,30 @@ class AtomicStateManager
     def get_broadcast_state
       state = get_state
       presence = get_presence
-      
+
       Rails.logger.debug "[AtomicState] Getting broadcast state - Redis available: #{redis_available?}"
       Rails.logger.debug "[AtomicState] Current votes: #{state[:votes].keys.join(', ')}"
       Rails.logger.debug "[AtomicState] Current presence: #{presence.keys.join(', ')}"
-      
+
       # Simple broadcast state - no cleanup during vote operations
       # Cleanup is handled separately via periodic jobs to avoid race conditions
       connected_count = presence.count
       voted_count = state[:votes].count
-      
+
       Rails.logger.debug "[AtomicState] Final votes for broadcast: #{state[:votes].keys.join(', ')}"
       Rails.logger.debug "[AtomicState] Connected count: #{connected_count}, Voted count: #{voted_count}"
       Rails.logger.debug "[AtomicState] Ticket data attachments: #{state[:ticket_data]&.dig(:attachments)&.count || 0}"
-      
+
       {
         ticket_data: state[:ticket_data],
         ticket_title: state[:ticket_title],
         ticket_id: state[:ticket_id],
         votes: state[:votes],
         revealed: state[:revealed],
+        tickets: state[:tickets] || [],
+        current_ticket_index: state[:current_ticket_index] || 0,
+        votes_by_ticket: state[:votes_by_ticket] || {},
+        revealed_by_ticket: state[:revealed_by_ticket] || {},
         connected_count: connected_count,
         voted_count: voted_count,
         version: state[:version],
@@ -447,30 +536,30 @@ class AtomicStateManager
       # Separate method for cleaning up votes from disconnected users
       # This should be called periodically, not during vote operations
       Rails.logger.info "[AtomicState] Starting periodic vote cleanup"
-      
+
       state = get_state
       presence = get_presence
-      
+
       if redis_available? && presence.count > 0
         # Get user names from currently connected users
         connected_user_names = presence.values.map { |data| data[:user_name] }.compact
-        
+
         # Only count votes from currently connected users
         current_votes = state[:votes].select { |user_name, _| connected_user_names.include?(user_name) }
-        
+
         # Clean up votes from disconnected users
         if current_votes.count != state[:votes].count
           removed_count = state[:votes].count - current_votes.count
           Rails.logger.info "[AtomicState] Periodic cleanup: removing #{removed_count} vote(s) from disconnected users"
-          
+
           new_state = state.dup
           new_state[:votes] = current_votes
           new_state[:version] = state[:version] + 1
           new_state[:last_updated] = Time.current.to_i
-          
+
           save_state(new_state)
           broadcast_state_change("votes_cleaned", new_state)
-          
+
           Rails.logger.info "[AtomicState] Periodic cleanup completed: #{state[:votes].count} -> #{current_votes.count} votes"
         else
           Rails.logger.debug "[AtomicState] Periodic cleanup: no votes to remove"
@@ -483,29 +572,29 @@ class AtomicStateManager
     def validate_state_integrity
       state = get_state
       presence = get_presence
-      
+
       issues = []
-      
+
       # Check for version consistency
       if state[:version] < 0
         issues << "Invalid version number: #{state[:version]}"
       end
-      
+
       # Check for orphaned votes
       if state[:votes].any? && !state[:ticket_data]
         issues << "Votes exist without ticket data"
       end
-      
+
       # Check for revealed votes without votes
       if state[:revealed] && state[:votes].empty?
         issues << "Revealed state without votes"
       end
-      
+
       # Check presence consistency
       if presence.count < 0
         issues << "Invalid presence count: #{presence.count}"
       end
-      
+
       issues
     end
 
@@ -517,10 +606,10 @@ class AtomicStateManager
           info = with_redis { |conn| conn.info("clients") }
           Rails.logger.info "[AtomicState] Redis client info before cleanup: #{info}"
         end
-        
+
         # Force close and reset Redis connection to prevent leaks
         reset_redis_connection
-        
+
         Rails.logger.info "[AtomicState] Redis connection cleanup completed"
       rescue StandardError => e
         Rails.logger.error "[AtomicState] Error during Redis connection cleanup: #{e.message}"
@@ -537,10 +626,10 @@ class AtomicStateManager
 
     def acquire_lock(operation_name)
       return false unless redis_available?
-      
+
       lock_key = "#{LOCK_KEY}:#{operation_name}"
       lock_value = "#{Process.pid}:#{Thread.current.object_id}:#{Time.current.to_f}"
-      
+
       # Try to acquire lock with expiration
       result = with_redis { |conn| conn.set(lock_key, lock_value, nx: true, ex: LOCK_TIMEOUT) }
       result == "OK"
@@ -551,7 +640,7 @@ class AtomicStateManager
 
     def release_lock(operation_name)
       return unless redis_available?
-      
+
       lock_key = "#{LOCK_KEY}:#{operation_name}"
       result = with_redis { |conn| conn.del(lock_key) }
       Rails.logger.debug "[AtomicState] Lock release result for #{operation_name}: #{result}"
@@ -568,12 +657,12 @@ class AtomicStateManager
 
     def cleanup_stale_locks
       return unless redis_available?
-      
+
       begin
         # Get all lock keys
         lock_keys = with_redis { |conn| conn.keys("#{LOCK_KEY}:*") }
         Rails.logger.debug "[AtomicState] Found #{lock_keys.count} lock keys"
-        
+
         lock_keys.each do |lock_key|
           # Check if lock is still valid (not expired)
           ttl = with_redis { |conn| conn.ttl(lock_key) }
@@ -594,7 +683,7 @@ class AtomicStateManager
 
     def save_state(state)
       Rails.logger.debug "[AtomicState] Saving state version #{state[:version]}"
-      
+
       if redis_available?
         Rails.logger.debug "[AtomicState] Using Redis to save state"
         start_time = Time.current
@@ -655,6 +744,10 @@ class AtomicStateManager
         ticket_id: nil,
         votes: {},
         revealed: false,
+        tickets: [],
+        current_ticket_index: 0,
+        votes_by_ticket: {},
+        revealed_by_ticket: {},
         version: 0,
         last_updated: Time.current.to_i
       }
@@ -662,30 +755,30 @@ class AtomicStateManager
 
     def broadcast_state_change(action, state)
       Rails.logger.info "[AtomicState] Broadcasting #{action}, version: #{state[:version]}"
-      
+
       begin
         broadcast_state = get_broadcast_state
-        
+
         # Check if state has actually changed to avoid unnecessary broadcasts
         last_broadcast_key = "last_broadcast_state"
         last_broadcast_state = nil
-        
+
         if redis_available?
           last_broadcast_state = with_redis { |conn| conn.get(last_broadcast_key) }
         end
-        
+
         # Only broadcast if state has actually changed
         current_state_hash = Digest::MD5.hexdigest(broadcast_state.to_json)
         if last_broadcast_state == current_state_hash
           Rails.logger.debug "[AtomicState] State unchanged, skipping broadcast for #{action}"
           return
         end
-        
+
         # Store current state hash for comparison
         if redis_available?
           with_redis { |conn| conn.setex(last_broadcast_key, 300, current_state_hash) } # 5 minute expiry
         end
-        
+
         # Send multiple broadcasts with slight delays to ensure delivery
         broadcast_message = {
           action: "sync_state",
@@ -694,10 +787,10 @@ class AtomicStateManager
           timestamp: Time.current.to_i,
           broadcast_id: SecureRandom.uuid
         }
-        
+
         # Primary broadcast
         ActionCable.server.broadcast("estimation_session", broadcast_message)
-        
+
         # Secondary broadcast after 100ms for reliability
         Thread.new do
           sleep(0.1)
@@ -706,9 +799,9 @@ class AtomicStateManager
             retry: true
           ))
         end
-        
+
         Rails.logger.info "[AtomicState] Broadcast sent for #{action} (primary + retry)"
-        
+
       rescue StandardError => e
         Rails.logger.error "[AtomicState] Broadcast error for #{action}: #{e.message}"
       end
@@ -716,21 +809,21 @@ class AtomicStateManager
 
     def calculate_session_health(state, presence)
       health_score = 100
-      
+
       # Deduct points for various issues
       if state[:version] == 0 && presence.count > 0
         health_score -= 20  # Session exists but no activity
       end
-      
+
       if presence.count == 0 && state[:votes].any?
         health_score -= 30  # Votes without connections
       end
-      
+
       if state[:last_updated] && (Time.current.to_i - state[:last_updated]) > 300
         health_score -= 10  # Stale session
       end
-      
-      [health_score, 0].max
+
+      [ health_score, 0 ].max
     end
   end
 end

@@ -4,12 +4,14 @@ Rails.application.routes.draw do
 
   # Main app
   root "estimations#index"
-  
+
   # API endpoints
   post "estimations/submit"
   post "estimations/reveal"
   post "estimations/clear"
   post "estimations/fetch_jira_ticket"
+  post "estimations/fetch_sprint_tickets"
+  post "estimations/navigate_ticket"
   get "estimations/session_state", to: "estimations#get_session_state"
   get "estimations/health", to: "estimations#health_check"
   get "jira_images/:attachment_id", to: "estimations#proxy_jira_image"

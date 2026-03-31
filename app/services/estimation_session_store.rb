@@ -81,7 +81,7 @@ class EstimationSessionStore
       presence = get_presence
       presence[connection_id] = Time.current.to_i
       save_presence(presence)
-      
+
       # Cleanup every 10 heartbeats
       if rand(10) == 0
         cleanup_stale_connections
@@ -91,11 +91,11 @@ class EstimationSessionStore
     def cleanup_stale_connections
       presence = get_presence
       current_time = Time.current.to_i
-      
+
       presence.reject! do |_id, last_seen|
         current_time - last_seen > PRESENCE_EXPIRY.to_i
       end
-      
+
       save_presence(presence)
     end
 

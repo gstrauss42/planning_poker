@@ -4,7 +4,7 @@
 Rails.application.config.after_initialize do
   # Log cache configuration
   Rails.logger.info "Cache Store: #{Rails.cache.class.name}"
-  
+
   # Ensure cache is enabled (especially important for development)
   if Rails.env.development? && !Rails.root.join("tmp/caching-dev.txt").exist?
     Rails.logger.warn "=" * 60
@@ -13,7 +13,7 @@ Rails.application.config.after_initialize do
     Rails.logger.warn "This is required for Planning Poker session storage"
     Rails.logger.warn "=" * 60
   end
-  
+
   # Test cache is working
   begin
     Rails.cache.write("test_key", "test_value", expires_in: 1.second)

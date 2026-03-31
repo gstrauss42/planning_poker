@@ -1,22 +1,22 @@
 class EstimationChannel < ApplicationCable::Channel
   def subscribed
     stream_from "estimation_session"
-    
+
     Rails.logger.info "[Channel] Client subscribed: #{connection.connection_identifier}"
-    
+
     begin
       # Track connection atomically
       Rails.logger.info "[Channel] Adding connection to state manager"
       AtomicStateManager.add_connection(connection.connection_identifier)
-      
+
       # Send current state to THIS client only with retry mechanism
       Rails.logger.info "[Channel] Sending initial state to client"
       send_state_with_retry
-      
+
       # Broadcast updated presence to ALL clients
       Rails.logger.info "[Channel] Broadcasting presence update"
       broadcast_presence
-      
+
     rescue AtomicStateManager::StateError => e
       Rails.logger.error "[Channel] State error during subscription: #{e.message}"
       transmit_error("Failed to join session. Please refresh the page.")
@@ -29,17 +29,17 @@ class EstimationChannel < ApplicationCable::Channel
 
   def unsubscribed
     Rails.logger.info "[Channel] Client unsubscribed: #{connection.connection_identifier}"
-    
+
     begin
       # Remove connection atomically
       AtomicStateManager.remove_connection(connection.connection_identifier)
-      
+
       # Force cleanup and broadcast updated presence
       AtomicStateManager.cleanup_stale_connections
       broadcast_presence
-      
+
       Rails.logger.info "[Channel] Connection cleanup completed for: #{connection.connection_identifier}"
-      
+
     rescue AtomicStateManager::StateError => e
       Rails.logger.error "[Channel] State error during unsubscription: #{e.message}"
     rescue StandardError => e
@@ -50,12 +50,12 @@ class EstimationChannel < ApplicationCable::Channel
   def heartbeat
     begin
       AtomicStateManager.heartbeat(connection.connection_identifier)
-      
+
       # Send periodic state validation less frequently
       if rand(100) == 0  # Every 100th heartbeat (reduced from 50th)
         validate_client_state
       end
-      
+
     rescue AtomicStateManager::StateError => e
       Rails.logger.error "[Channel] State error during heartbeat: #{e.message}"
       transmit_error("Session state error. Please refresh.")
@@ -69,26 +69,26 @@ class EstimationChannel < ApplicationCable::Channel
       # Server-side rate limiting to prevent loops
       client_id = connection.connection_identifier
       now = Time.current.to_i
-      
+
       # Check if this client has requested sync too recently
       last_sync_key = "last_sync_#{client_id}"
       last_sync = Rails.cache.read(last_sync_key)
-      
+
       if last_sync && (now - last_sync) < 2
         Rails.logger.warn "[Channel] Rate limiting sync request from #{client_id} - too soon since last request"
         return
       end
-      
+
       # Circuit breaker: track consecutive rapid requests
       rapid_requests_key = "rapid_requests_#{client_id}"
       rapid_requests = Rails.cache.read(rapid_requests_key) || 0
-      
+
       if rapid_requests > 10
         Rails.logger.error "[Channel] Circuit breaker triggered for #{client_id} - too many rapid requests (#{rapid_requests})"
         transmit_error("Too many sync requests. Please refresh the page.")
         return
       end
-      
+
       # Increment rapid request counter if this is a rapid request
       if last_sync && (now - last_sync) < 5
         rapid_requests += 1
@@ -98,10 +98,10 @@ class EstimationChannel < ApplicationCable::Channel
         Rails.cache.delete(rapid_requests_key)
         rapid_requests = 0
       end
-      
+
       # Store this sync request time
       Rails.cache.write(last_sync_key, now, expires_in: 10.seconds)
-      
+
       Rails.logger.info "[Channel] Processing state sync request from #{client_id} (rapid_requests: #{rapid_requests})"
       send_state_with_retry
     rescue StandardError => e
@@ -109,30 +109,30 @@ class EstimationChannel < ApplicationCable::Channel
       transmit_error("Failed to sync state. Please refresh.")
     end
   end
-  
+
   private
-  
+
   def send_state_with_retry
     retries = 0
     max_retries = 3
-    
+
     begin
       Rails.logger.info "[Channel] Getting broadcast state for client #{connection.connection_identifier}"
       state = AtomicStateManager.get_broadcast_state
       Rails.logger.info "[Channel] State retrieved: version #{state[:version]}, votes: #{state[:votes]&.count || 0}"
-      
+
       transmit_message = {
         action: "sync_state",
         state: state,
         timestamp: Time.current.to_i,
         retry_count: retries
       }
-      
+
       Rails.logger.info "[Channel] Transmitting state to client #{connection.connection_identifier}"
       transmit(transmit_message)
-      
+
       Rails.logger.info "[Channel] State sent to #{connection.connection_identifier}, version: #{state[:version]}"
-      
+
     rescue StandardError => e
       retries += 1
       Rails.logger.error "[Channel] State send failed for client #{connection.connection_identifier}: #{e.message}"
@@ -146,7 +146,7 @@ class EstimationChannel < ApplicationCable::Channel
       end
     end
   end
-  
+
   def broadcast_presence
     begin
       presence_data = {
@@ -155,9 +155,9 @@ class EstimationChannel < ApplicationCable::Channel
         voted_count: AtomicStateManager.voted_count,
         timestamp: Time.current.to_i
       }
-      
+
       ActionCable.server.broadcast("estimation_session", presence_data)
-      
+
     rescue StandardError => e
       Rails.logger.error "[Channel] Error broadcasting presence: #{e.message}"
     end

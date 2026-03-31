@@ -4,24 +4,24 @@ class SessionHealthMonitorJob < ApplicationJob
 
   def perform
     Rails.logger.info "[SessionHealthMonitorJob] Starting periodic health check"
-    
+
     begin
       # Clean up Redis connections to prevent leaks
       AtomicStateManager.cleanup_redis_connections
-      
+
       # Clean up stale votes from disconnected users (separate from vote operations)
       AtomicStateManager.cleanup_stale_votes
-      
+
       health_report = SessionMonitor.monitor_session_health
-      
+
       # Log health status
       if health_report[:overall_health] < 70
         Rails.logger.warn "[SessionHealthMonitorJob] Session health degraded: #{health_report[:overall_health]}%"
       end
-      
+
       # Store metrics for monitoring dashboards
       store_health_metrics(health_report)
-      
+
     rescue StandardError => e
       Rails.logger.error "[SessionHealthMonitorJob] Health monitoring failed: #{e.message}"
     end
@@ -39,7 +39,7 @@ class SessionHealthMonitorJob < ApplicationJob
       presence_issues_count: health_report[:presence_issues].length,
       stale_sessions_count: health_report[:stale_sessions].length
     }
-    
+
     AtomicStateManager.redis.setex(
       "session_health_metrics",
       300, # 5 minutes

@@ -39,13 +39,13 @@ class JiraServiceAdfParserTest < ActiveSupport::TestCase
             {
               "type" => "tableHeader",
               "content" => [
-                { "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Header 1" }] }
+                { "type" => "paragraph", "content" => [ { "type" => "text", "text" => "Header 1" } ] }
               ]
             },
             {
               "type" => "tableHeader",
               "content" => [
-                { "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Header 2" }] }
+                { "type" => "paragraph", "content" => [ { "type" => "text", "text" => "Header 2" } ] }
               ]
             }
           ]
@@ -56,13 +56,13 @@ class JiraServiceAdfParserTest < ActiveSupport::TestCase
             {
               "type" => "tableCell",
               "content" => [
-                { "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Cell 1" }] }
+                { "type" => "paragraph", "content" => [ { "type" => "text", "text" => "Cell 1" } ] }
               ]
             },
             {
               "type" => "tableCell",
               "content" => [
-                { "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Cell 2" }] }
+                { "type" => "paragraph", "content" => [ { "type" => "text", "text" => "Cell 2" } ] }
               ]
             }
           ]
@@ -89,7 +89,7 @@ class JiraServiceAdfParserTest < ActiveSupport::TestCase
       "type" => "tableCell",
       "attrs" => { "colspan" => 2 },
       "content" => [
-        { "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Spanning cell" }] }
+        { "type" => "paragraph", "content" => [ { "type" => "text", "text" => "Spanning cell" } ] }
       ]
     }
 
@@ -104,7 +104,7 @@ class JiraServiceAdfParserTest < ActiveSupport::TestCase
       "type" => "tableCell",
       "attrs" => { "rowspan" => 3 },
       "content" => [
-        { "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Tall cell" }] }
+        { "type" => "paragraph", "content" => [ { "type" => "text", "text" => "Tall cell" } ] }
       ]
     }
 
@@ -119,7 +119,7 @@ class JiraServiceAdfParserTest < ActiveSupport::TestCase
       "type" => "tableHeader",
       "attrs" => { "colspan" => 2, "rowspan" => 2 },
       "content" => [
-        { "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Big header" }] }
+        { "type" => "paragraph", "content" => [ { "type" => "text", "text" => "Big header" } ] }
       ]
     }
 
@@ -149,7 +149,7 @@ class JiraServiceAdfParserTest < ActiveSupport::TestCase
         {
           "type" => "tableCell",
           "content" => [
-            { "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Cell" }] }
+            { "type" => "paragraph", "content" => [ { "type" => "text", "text" => "Cell" } ] }
           ]
         }
       ]
@@ -272,7 +272,7 @@ class JiraServiceAdfParserTest < ActiveSupport::TestCase
       "type" => "panel",
       "attrs" => { "panelType" => "info" },
       "content" => [
-        { "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Info message" }] }
+        { "type" => "paragraph", "content" => [ { "type" => "text", "text" => "Info message" } ] }
       ]
     }
 
@@ -288,7 +288,7 @@ class JiraServiceAdfParserTest < ActiveSupport::TestCase
       "type" => "panel",
       "attrs" => { "panelType" => "warning" },
       "content" => [
-        { "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Warning!" }] }
+        { "type" => "paragraph", "content" => [ { "type" => "text", "text" => "Warning!" } ] }
       ]
     }
 
@@ -303,7 +303,7 @@ class JiraServiceAdfParserTest < ActiveSupport::TestCase
       "type" => "panel",
       "attrs" => { "panelType" => "error" },
       "content" => [
-        { "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Error occurred" }] }
+        { "type" => "paragraph", "content" => [ { "type" => "text", "text" => "Error occurred" } ] }
       ]
     }
 
@@ -318,7 +318,7 @@ class JiraServiceAdfParserTest < ActiveSupport::TestCase
       "type" => "panel",
       "attrs" => { "panelType" => "success" },
       "content" => [
-        { "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Success!" }] }
+        { "type" => "paragraph", "content" => [ { "type" => "text", "text" => "Success!" } ] }
       ]
     }
 
@@ -333,7 +333,7 @@ class JiraServiceAdfParserTest < ActiveSupport::TestCase
       "type" => "panel",
       "attrs" => { "panelType" => "note" },
       "content" => [
-        { "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Note this" }] }
+        { "type" => "paragraph", "content" => [ { "type" => "text", "text" => "Note this" } ] }
       ]
     }
 
@@ -347,7 +347,7 @@ class JiraServiceAdfParserTest < ActiveSupport::TestCase
     adf = {
       "type" => "panel",
       "content" => [
-        { "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Default panel" }] }
+        { "type" => "paragraph", "content" => [ { "type" => "text", "text" => "Default panel" } ] }
       ]
     }
 
@@ -495,7 +495,7 @@ class JiraServiceAdfParserTest < ActiveSupport::TestCase
       "type" => "expand",
       "attrs" => { "title" => "Click to expand" },
       "content" => [
-        { "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Hidden content" }] }
+        { "type" => "paragraph", "content" => [ { "type" => "text", "text" => "Hidden content" } ] }
       ]
     }
 
@@ -511,7 +511,7 @@ class JiraServiceAdfParserTest < ActiveSupport::TestCase
     adf = {
       "type" => "expand",
       "content" => [
-        { "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Content" }] }
+        { "type" => "paragraph", "content" => [ { "type" => "text", "text" => "Content" } ] }
       ]
     }
 
@@ -525,7 +525,7 @@ class JiraServiceAdfParserTest < ActiveSupport::TestCase
       "type" => "nestedExpand",
       "attrs" => { "title" => "Nested section" },
       "content" => [
-        { "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Nested content" }] }
+        { "type" => "paragraph", "content" => [ { "type" => "text", "text" => "Nested content" } ] }
       ]
     }
 
