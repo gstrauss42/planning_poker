@@ -1,12 +1,14 @@
 # app/services/atomic_state_manager.rb
 class AtomicStateManager
   SESSION_KEY = "estimation_session_state"
+  ASYNC_SESSION_KEY = "estimation_async_session_state"
   PRESENCE_KEY = "estimation_session_presence"
   LOCK_KEY = "estimation_session_lock"
-  SESSION_EXPIRY = 2.hours.to_i  # Extended for 1.5 hour sessions
-  PRESENCE_EXPIRY = 2.minutes.to_i  # More generous presence tracking
-  LOCK_TIMEOUT = 3.seconds.to_i  # Increased for better reliability
-  MAX_RETRIES = 2  # Reduced retries but increased timeout
+  SESSION_EXPIRY = 2.hours.to_i
+  ASYNC_SESSION_EXPIRY = 2.days.to_i
+  PRESENCE_EXPIRY = 2.minutes.to_i
+  LOCK_TIMEOUT = 3.seconds.to_i
+  MAX_RETRIES = 2
 
   class StateError < StandardError; end
   class LockTimeoutError < StandardError; end
@@ -368,104 +370,90 @@ class AtomicStateManager
 
     def set_async_tickets(tickets_array)
       atomic_update("set_async_tickets") do
-        current_state = get_state
-        new_state = current_state.dup
+        async_state = get_async_state
+        async_state[:async_tickets] = tickets_array
+        async_state[:async_votes_by_ticket] ||= {}
+        async_state[:async_revealed_by_ticket] ||= {}
+        async_state[:version] = (async_state[:version] || 0) + 1
+        async_state[:last_updated] = Time.current.to_i
 
-        new_state[:async_tickets] = tickets_array
-        new_state[:async_votes_by_ticket] = current_state[:async_votes_by_ticket] || {}
-        new_state[:async_revealed_by_ticket] = current_state[:async_revealed_by_ticket] || {}
-
-        new_state[:version] = current_state[:version] + 1
-        new_state[:last_updated] = Time.current.to_i
-
-        save_state(new_state)
-        broadcast_state_change("async_tickets_loaded", new_state)
-        new_state
+        save_async_state(async_state)
+        broadcast_state_change("async_tickets_loaded", async_state)
+        async_state
       end
     end
 
     def add_async_ticket(ticket_data)
       atomic_update("add_async_ticket") do
-        current_state = get_state
-        new_state = current_state.dup
-
-        new_state[:async_tickets] = (current_state[:async_tickets] || []).dup
-        unless new_state[:async_tickets].any? { |t| t[:key] == ticket_data[:key] }
-          new_state[:async_tickets] << ticket_data
+        async_state = get_async_state
+        async_state[:async_tickets] = (async_state[:async_tickets] || []).dup
+        unless async_state[:async_tickets].any? { |t| t[:key] == ticket_data[:key] }
+          async_state[:async_tickets] << ticket_data
         end
+        async_state[:version] = (async_state[:version] || 0) + 1
+        async_state[:last_updated] = Time.current.to_i
 
-        new_state[:version] = current_state[:version] + 1
-        new_state[:last_updated] = Time.current.to_i
-
-        save_state(new_state)
-        broadcast_state_change("async_ticket_added", new_state)
-        new_state
+        save_async_state(async_state)
+        broadcast_state_change("async_ticket_added", async_state)
+        async_state
       end
     end
 
     def add_vote_for_ticket(ticket_id, user_name, points)
       atomic_update("add_vote_for_ticket") do
-        current_state = get_state
-        new_state = current_state.dup
+        async_state = get_async_state
         tid = ticket_id.to_s
 
-        avbt = (current_state[:async_votes_by_ticket] || {}).dup
+        avbt = (async_state[:async_votes_by_ticket] || {}).dup
         existing = avbt[tid] || avbt[tid.to_sym] || {}
         ticket_votes = existing.dup
         ticket_votes[user_name] = points
         avbt[tid] = ticket_votes
-        new_state[:async_votes_by_ticket] = avbt
+        async_state[:async_votes_by_ticket] = avbt
+        async_state[:version] = (async_state[:version] || 0) + 1
+        async_state[:last_updated] = Time.current.to_i
 
-        new_state[:version] = current_state[:version] + 1
-        new_state[:last_updated] = Time.current.to_i
-
-        save_state(new_state)
-        broadcast_state_change("async_vote_added", new_state)
-        new_state
+        save_async_state(async_state)
+        broadcast_state_change("async_vote_added", async_state)
+        async_state
       end
     end
 
     def reveal_votes_for_ticket(ticket_id)
       atomic_update("reveal_votes_for_ticket") do
-        current_state = get_state
+        async_state = get_async_state
         tid = ticket_id.to_s
 
-        avbt = current_state[:async_votes_by_ticket] || {}
+        avbt = async_state[:async_votes_by_ticket] || {}
         ticket_votes = avbt[tid] || avbt[tid.to_sym] || {}
+        return async_state if ticket_votes.empty?
 
-        return current_state if ticket_votes.empty?
+        async_state[:async_revealed_by_ticket] = (async_state[:async_revealed_by_ticket] || {}).dup
+        async_state[:async_revealed_by_ticket][tid] = true
+        async_state[:version] = (async_state[:version] || 0) + 1
+        async_state[:last_updated] = Time.current.to_i
 
-        new_state = current_state.dup
-        new_state[:async_revealed_by_ticket] = (current_state[:async_revealed_by_ticket] || {}).dup
-        new_state[:async_revealed_by_ticket][tid] = true
-
-        new_state[:version] = current_state[:version] + 1
-        new_state[:last_updated] = Time.current.to_i
-
-        save_state(new_state)
-        broadcast_state_change("async_votes_revealed", new_state)
-        new_state
+        save_async_state(async_state)
+        broadcast_state_change("async_votes_revealed", async_state)
+        async_state
       end
     end
 
     def clear_votes_for_ticket(ticket_id)
       atomic_update("clear_votes_for_ticket") do
-        current_state = get_state
-        new_state = current_state.dup
+        async_state = get_async_state
         tid = ticket_id.to_s
 
-        new_state[:async_votes_by_ticket] = (current_state[:async_votes_by_ticket] || {}).dup
-        new_state[:async_votes_by_ticket][tid] = {}
+        async_state[:async_votes_by_ticket] = (async_state[:async_votes_by_ticket] || {}).dup
+        async_state[:async_votes_by_ticket][tid] = {}
+        async_state[:async_revealed_by_ticket] = (async_state[:async_revealed_by_ticket] || {}).dup
+        async_state[:async_revealed_by_ticket][tid] = false
+        async_state[:version] = (async_state[:version] || 0) + 1
+        async_state[:last_updated] = Time.current.to_i
 
-        new_state[:async_revealed_by_ticket] = (current_state[:async_revealed_by_ticket] || {}).dup
-        new_state[:async_revealed_by_ticket][tid] = false
-
-        new_state[:version] = current_state[:version] + 1
-        new_state[:last_updated] = Time.current.to_i
-
-        save_state(new_state)
-        broadcast_state_change("async_votes_cleared", new_state)
-        new_state
+        save_async_state(async_state)
+        broadcast_state_change("async_votes_cleared", async_state)
+        async_state
       end
     end
 
@@ -473,6 +461,7 @@ class AtomicStateManager
       atomic_update("clear_all") do
         with_redis do |conn|
           conn.del(SESSION_KEY)
+          conn.del(ASYNC_SESSION_KEY)
           conn.del(PRESENCE_KEY)
         end
         default_state
@@ -602,14 +591,13 @@ class AtomicStateManager
 
     def get_broadcast_state
       state = get_state
+      async_state = get_async_state
       presence = get_presence
 
       Rails.logger.debug "[AtomicState] Getting broadcast state - Redis available: #{redis_available?}"
       Rails.logger.debug "[AtomicState] Current votes: #{state[:votes].keys.join(', ')}"
       Rails.logger.debug "[AtomicState] Current presence: #{presence.keys.join(', ')}"
 
-      # Simple broadcast state - no cleanup during vote operations
-      # Cleanup is handled separately via periodic jobs to avoid race conditions
       connected_count = presence.count
       voted_count = state[:votes].count
 
@@ -627,9 +615,9 @@ class AtomicStateManager
         current_ticket_index: state[:current_ticket_index] || 0,
         votes_by_ticket: state[:votes_by_ticket] || {},
         revealed_by_ticket: state[:revealed_by_ticket] || {},
-        async_tickets: state[:async_tickets] || [],
-        async_votes_by_ticket: state[:async_votes_by_ticket] || {},
-        async_revealed_by_ticket: state[:async_revealed_by_ticket] || {},
+        async_tickets: async_state[:async_tickets] || [],
+        async_votes_by_ticket: async_state[:async_votes_by_ticket] || {},
+        async_revealed_by_ticket: async_state[:async_revealed_by_ticket] || {},
         connected_count: connected_count,
         voted_count: voted_count,
         version: state[:version],
@@ -787,6 +775,62 @@ class AtomicStateManager
 
 
 
+    def get_async_state
+      if redis_available?
+        data = with_redis { |conn| conn.get(ASYNC_SESSION_KEY) }
+        if data
+          JSON.parse(data, symbolize_names: true)
+        else
+          migrate_legacy_async_state || default_async_state
+        end
+      else
+        Rails.cache.read(ASYNC_SESSION_KEY) || default_async_state
+      end
+    rescue JSON::ParserError => e
+      Rails.logger.error "[AtomicState] Failed to parse async state: #{e.message}"
+      default_async_state
+    rescue StandardError => e
+      Rails.logger.error "[AtomicState] Error getting async state: #{e.message}, using fallback"
+      Rails.cache.read(ASYNC_SESSION_KEY) || default_async_state
+    end
+
+    def save_async_state(async_state)
+      if redis_available?
+        with_redis { |conn| conn.setex(ASYNC_SESSION_KEY, ASYNC_SESSION_EXPIRY, async_state.to_json) }
+      else
+        Rails.cache.write(ASYNC_SESSION_KEY, async_state, expires_in: ASYNC_SESSION_EXPIRY.seconds)
+      end
+      async_state
+    rescue StandardError => e
+      Rails.logger.error "[AtomicState] Error saving async state: #{e.message}, using fallback"
+      Rails.cache.write(ASYNC_SESSION_KEY, async_state, expires_in: ASYNC_SESSION_EXPIRY.seconds)
+      async_state
+    end
+
+    # One-time migration: pull async data from the legacy combined session key
+    # into the dedicated async key. Runs once on first async read after deploy.
+    def migrate_legacy_async_state
+      legacy = get_state
+      has_legacy = legacy[:async_tickets]&.any? ||
+                   legacy[:async_votes_by_ticket]&.any? ||
+                   legacy[:async_revealed_by_ticket]&.any?
+      return nil unless has_legacy
+
+      Rails.logger.info "[AtomicState] Migrating legacy async data to dedicated key"
+      migrated = {
+        async_tickets: legacy[:async_tickets] || [],
+        async_votes_by_ticket: legacy[:async_votes_by_ticket] || {},
+        async_revealed_by_ticket: legacy[:async_revealed_by_ticket] || {},
+        version: 0,
+        last_updated: Time.current.to_i
+      }
+      save_async_state(migrated)
+      migrated
+    rescue StandardError => e
+      Rails.logger.error "[AtomicState] Legacy async migration failed: #{e.message}"
+      nil
+    end
+
     def save_state(state)
       Rails.logger.debug "[AtomicState] Saving state version #{state[:version]}"
 
@@ -854,6 +898,13 @@ class AtomicStateManager
         current_ticket_index: 0,
         votes_by_ticket: {},
         revealed_by_ticket: {},
+        version: 0,
+        last_updated: Time.current.to_i
+      }
+    end
+
+    def default_async_state
+      {
         async_tickets: [],
         async_votes_by_ticket: {},
         async_revealed_by_ticket: {},
