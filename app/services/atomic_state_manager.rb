@@ -366,6 +366,109 @@ class AtomicStateManager
       end
     end
 
+    def set_async_tickets(tickets_array)
+      atomic_update("set_async_tickets") do
+        current_state = get_state
+        new_state = current_state.dup
+
+        new_state[:async_tickets] = tickets_array
+        new_state[:async_votes_by_ticket] = current_state[:async_votes_by_ticket] || {}
+        new_state[:async_revealed_by_ticket] = current_state[:async_revealed_by_ticket] || {}
+
+        new_state[:version] = current_state[:version] + 1
+        new_state[:last_updated] = Time.current.to_i
+
+        save_state(new_state)
+        broadcast_state_change("async_tickets_loaded", new_state)
+        new_state
+      end
+    end
+
+    def add_async_ticket(ticket_data)
+      atomic_update("add_async_ticket") do
+        current_state = get_state
+        new_state = current_state.dup
+
+        new_state[:async_tickets] = (current_state[:async_tickets] || []).dup
+        unless new_state[:async_tickets].any? { |t| t[:key] == ticket_data[:key] }
+          new_state[:async_tickets] << ticket_data
+        end
+
+        new_state[:version] = current_state[:version] + 1
+        new_state[:last_updated] = Time.current.to_i
+
+        save_state(new_state)
+        broadcast_state_change("async_ticket_added", new_state)
+        new_state
+      end
+    end
+
+    def add_vote_for_ticket(ticket_id, user_name, points)
+      atomic_update("add_vote_for_ticket") do
+        current_state = get_state
+        new_state = current_state.dup
+        tid = ticket_id.to_s
+
+        avbt = (current_state[:async_votes_by_ticket] || {}).dup
+        existing = avbt[tid] || avbt[tid.to_sym] || {}
+        ticket_votes = existing.dup
+        ticket_votes[user_name] = points
+        avbt[tid] = ticket_votes
+        new_state[:async_votes_by_ticket] = avbt
+
+        new_state[:version] = current_state[:version] + 1
+        new_state[:last_updated] = Time.current.to_i
+
+        save_state(new_state)
+        broadcast_state_change("async_vote_added", new_state)
+        new_state
+      end
+    end
+
+    def reveal_votes_for_ticket(ticket_id)
+      atomic_update("reveal_votes_for_ticket") do
+        current_state = get_state
+        tid = ticket_id.to_s
+
+        avbt = current_state[:async_votes_by_ticket] || {}
+        ticket_votes = avbt[tid] || avbt[tid.to_sym] || {}
+
+        return current_state if ticket_votes.empty?
+
+        new_state = current_state.dup
+        new_state[:async_revealed_by_ticket] = (current_state[:async_revealed_by_ticket] || {}).dup
+        new_state[:async_revealed_by_ticket][tid] = true
+
+        new_state[:version] = current_state[:version] + 1
+        new_state[:last_updated] = Time.current.to_i
+
+        save_state(new_state)
+        broadcast_state_change("async_votes_revealed", new_state)
+        new_state
+      end
+    end
+
+    def clear_votes_for_ticket(ticket_id)
+      atomic_update("clear_votes_for_ticket") do
+        current_state = get_state
+        new_state = current_state.dup
+        tid = ticket_id.to_s
+
+        new_state[:async_votes_by_ticket] = (current_state[:async_votes_by_ticket] || {}).dup
+        new_state[:async_votes_by_ticket][tid] = {}
+
+        new_state[:async_revealed_by_ticket] = (current_state[:async_revealed_by_ticket] || {}).dup
+        new_state[:async_revealed_by_ticket][tid] = false
+
+        new_state[:version] = current_state[:version] + 1
+        new_state[:last_updated] = Time.current.to_i
+
+        save_state(new_state)
+        broadcast_state_change("async_votes_cleared", new_state)
+        new_state
+      end
+    end
+
     def clear_all
       atomic_update("clear_all") do
         with_redis do |conn|
@@ -524,6 +627,9 @@ class AtomicStateManager
         current_ticket_index: state[:current_ticket_index] || 0,
         votes_by_ticket: state[:votes_by_ticket] || {},
         revealed_by_ticket: state[:revealed_by_ticket] || {},
+        async_tickets: state[:async_tickets] || [],
+        async_votes_by_ticket: state[:async_votes_by_ticket] || {},
+        async_revealed_by_ticket: state[:async_revealed_by_ticket] || {},
         connected_count: connected_count,
         voted_count: voted_count,
         version: state[:version],
@@ -748,6 +854,9 @@ class AtomicStateManager
         current_ticket_index: 0,
         votes_by_ticket: {},
         revealed_by_ticket: {},
+        async_tickets: [],
+        async_votes_by_ticket: {},
+        async_revealed_by_ticket: {},
         version: 0,
         last_updated: Time.current.to_i
       }

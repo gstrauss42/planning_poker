@@ -838,6 +838,40 @@
     .container {
       margin-left: 0;
     }
+    /* Sidebar Tabs */
+    .sidebar-tabs {
+      display: flex;
+      gap: 0;
+      margin: 12px 0 8px;
+    }
+    .sidebar-tab {
+      flex: 1;
+      padding: 7px 12px;
+      border: 2px solid #2196F3;
+      background: white;
+      color: #2196F3;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      text-align: center;
+      line-height: 1;
+    }
+    .sidebar-tab:first-child {
+      border-radius: 6px 0 0 6px;
+      border-right: 1px solid #2196F3;
+    }
+    .sidebar-tab:last-child {
+      border-radius: 0 6px 6px 0;
+      border-left: 1px solid #2196F3;
+    }
+    .sidebar-tab.active {
+      background: #2196F3;
+      color: white;
+    }
+    .sidebar-tab:hover:not(.active) {
+      background: #e3f2fd;
+    }
   </style>
 </head>
 <body>
@@ -847,6 +881,10 @@
   <div class="tickets-sidebar" id="ticketsSidebar">
     <div class="sidebar-header">
       <h3>Sprint Tickets</h3>
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab active" id="liveTab">Live</button>
+        <button class="sidebar-tab" id="asyncTab">Async</button>
+      </div>
       <span class="tickets-count" id="ticketsCount">0 tickets</span>
     </div>
     <div class="tickets-list" id="ticketsList">
@@ -856,7 +894,7 @@
     </div>
   </div>
 
-  <div class="container">
+  <div class="container" id="liveContent">
     <h1>DataBaes Estimations</h1>
 
     <div class="ticket-section">
@@ -912,6 +950,61 @@
     </div>
   </div>
 
+  <div class="container" id="asyncContent" style="display: none;">
+    <h1>Async Estimations</h1>
+
+    <div class="ticket-section">
+      <div class="jira-input-group">
+        <input type="text" id="asyncSprintName" placeholder="Sprint name" value="Refinement & Estimations" style="flex: 0.8;" />
+        <button id="asyncFetchSprintBtn" class="fetch-jira">Load Sprint</button>
+      </div>
+      <div class="jira-input-group" style="margin-top: 10px;">
+        <input type="text" id="asyncJiraTicket" placeholder="Or enter single ticket key (e.g., PROJ-123) or URL" />
+        <button id="asyncFetchJiraBtn" class="fetch-jira">Fetch Ticket</button>
+      </div>
+
+      <div class="ticket-navigation" id="asyncTicketNavigation" style="display: none;">
+        <button id="asyncPrevTicketBtn" class="nav-button" disabled>← Previous</button>
+        <span class="ticket-position" id="asyncTicketPosition">0 / 0</span>
+        <button id="asyncNextTicketBtn" class="nav-button" disabled>Next →</button>
+      </div>
+
+      <div class="ticket-display empty" id="asyncTicketDisplay">
+        <span>No ticket loaded - Load sprint or enter a JIRA ticket to begin</span>
+      </div>
+    </div>
+
+    <div class="input-section">
+      <input type="text" id="asyncUserName" placeholder="Enter your name" />
+      <select id="asyncStoryPoints">
+        <option value="">Select points</option>
+        <option value="0">0</option>
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="5">5</option>
+        <option value="8">8</option>
+        <option value="13">13</option>
+        <option value="21">21</option>
+        <option value="?">?</option>
+      </select>
+      <button id="asyncSubmitBtn">Vote</button>
+    </div>
+
+    <div class="controls">
+      <button id="asyncRevealBtn" class="reveal" disabled>Reveal</button>
+      <button id="asyncClearBtn" class="clear" disabled>Clear Votes</button>
+    </div>
+
+    <div class="participants">
+      <h2>
+        Participants
+        <span class="presence-badge" id="asyncVoteBadge">0 voted</span>
+      </h2>
+      <div id="asyncParticipantsList"></div>
+    </div>
+  </div>
+
   <script type="module">
     import { createConsumer } from "@rails/actioncable"
     
@@ -925,6 +1018,9 @@
       currentTicketIndex: 0,
       votesByTicket: {},
       revealedByTicket: {},
+      asyncTickets: [],
+      asyncVotesByTicket: {},
+      asyncRevealedByTicket: {},
       connectedCount: 0,
       votedCount: 0,
       version: 0,
@@ -938,6 +1034,9 @@
       pendingOperations: new Set()
     };
     
+    let currentMode = 'live';
+    let asyncCurrentIndex = 0;
+
     let subscription = null;
     let heartbeatInterval = null;
     let reconnectTimeout = null;
@@ -1048,6 +1147,9 @@
         state.currentTicketIndex = serverState.current_ticket_index || 0;
         state.votesByTicket = serverState.votes_by_ticket || {};
         state.revealedByTicket = serverState.revealed_by_ticket || {};
+        state.asyncTickets = serverState.async_tickets || [];
+        state.asyncVotesByTicket = serverState.async_votes_by_ticket || {};
+        state.asyncRevealedByTicket = serverState.async_revealed_by_ticket || {};
         state.connectedCount = serverState.connected_count || 0;
         state.votedCount = serverState.voted_count || 0;
         state.version = serverState.version || 0;
@@ -1095,6 +1197,21 @@
         case 'votes_cleared':
           showStatus("Votes cleared");
           break;
+        case 'async_tickets_loaded':
+          showStatus(`${state.asyncTickets.length} async tickets loaded`);
+          break;
+        case 'async_ticket_added':
+          showStatus("Ticket added for async voting");
+          break;
+        case 'async_vote_added':
+          showStatus("Vote recorded");
+          break;
+        case 'async_votes_revealed':
+          showStatus("Votes revealed");
+          break;
+        case 'async_votes_cleared':
+          showStatus("Votes cleared");
+          break;
         default:
           showStatus("Session updated");
       }
@@ -1113,140 +1230,25 @@
 
     function renderTicket() {
       const display = document.getElementById("ticketDisplay");
-      
-      if (!state.ticketData) {
-        display.innerHTML = '<span>No ticket loaded - Enter a JIRA ticket to begin</span>';
+      const html = generateTicketHtml(state.ticketData, '');
+      if (!html) {
+        display.innerHTML = '<span>No ticket loaded - Load sprint or enter a JIRA ticket to begin</span>';
         display.classList.add("empty");
         return;
       }
-
       display.classList.remove("empty");
-      
-      // Preserve technical writeup dropdown state
-      const techWriteupExpanded = document.getElementById("technicalWriteupContent")?.classList.contains("expanded");
-      
-      let html = `
-        <div class="ticket-header">
-          <div>
-            <div class="ticket-title">${escapeHtml(state.ticketData.formatted_title || state.ticketData.key)}</div>
-            <div class="ticket-meta">
-              ${state.ticketData.status ? `
-                <div class="ticket-meta-item">
-                  <span class="ticket-meta-label">Status:</span>
-                  <span>${escapeHtml(state.ticketData.status)}</span>
-                </div>
-              ` : ''}
-              ${state.ticketData.priority ? `
-                <div class="ticket-meta-item">
-                  <span class="ticket-meta-label">Priority:</span>
-                  <span>${escapeHtml(state.ticketData.priority)}</span>
-                </div>
-              ` : ''}
-              ${state.ticketData.assignee ? `
-                <div class="ticket-meta-item">
-                  <span class="ticket-meta-label">Assignee:</span>
-                  <span>${escapeHtml(state.ticketData.assignee)}</span>
-                </div>
-              ` : ''}
-            </div>
-          </div>
-        </div>
-        <div class="ticket-content">
-      `;
-
-      if (state.ticketData.description && state.ticketData.description.trim()) {
-        html += `
-          <div class="ticket-section-block">
-            <div class="section-header">Description</div>
-            <div class="section-content">${state.ticketData.description}</div>
-          </div>
-        `;
-      }
-
-      if (state.ticketData.acceptance_criteria && state.ticketData.acceptance_criteria.trim()) {
-        html += `
-          <div class="ticket-section-block">
-            <div class="section-header">Acceptance Criteria</div>
-            <div class="section-content">${state.ticketData.acceptance_criteria}</div>
-          </div>
-        `;
-      }
-
-      if (state.ticketData.technical_writeup && state.ticketData.technical_writeup.trim()) {
-        const expandedClass = techWriteupExpanded ? "expanded" : "";
-        const iconClass = techWriteupExpanded ? "expanded" : "";
-        
-        html += `
-          <div class="ticket-section-block">
-            <div class="collapsible-section">
-              <div class="collapsible-header" onclick="toggleTechnicalWriteup()">
-                <div class="section-header">Technical Writeup</div>
-                <span class="collapse-icon ${iconClass}" id="techCollapseIcon">▼</span>
-              </div>
-              <div class="collapsible-content ${expandedClass}" id="technicalWriteupContent">
-                <div class="section-content">${state.ticketData.technical_writeup}</div>
-              </div>
-            </div>
-          </div>
-        `;
-      }
-
-      // Add attachments section
-      if (state.ticketData.attachments && state.ticketData.attachments.length > 0) {
-        html += `
-          <div class="ticket-section-block">
-            <div class="section-header">Attachments</div>
-            <div class="section-content">
-              <div class="attachments-list">
-        `;
-        
-        // Display all attachments as links (images are shown inline in the description)
-        state.ticketData.attachments.forEach(attachment => {
-          const sizeText = attachment.size ? `(${formatFileSize(attachment.size)})` : '';
-          const icon = attachment.is_image ? '🖼️' : '📎';
-          const url = attachment.proxy_url || attachment.url;
-          html += `
-            <div class="jira-attachment">
-              <a href="${url}" target="_blank" class="attachment-link">
-                ${icon} ${escapeHtml(attachment.filename)} ${sizeText}
-              </a>
-            </div>
-          `;
-        });
-        
-        html += `</div>`;
-        
-        html += `
-            </div>
-          </div>
-        `;
-      }
-
-      html += '</div>';
+      const wasExpanded = document.getElementById('TechnicalWriteupContent')?.classList.contains('expanded');
       display.innerHTML = html;
-      
-      // Re-add image click handlers after rendering
-      setTimeout(addImageClickHandlers, 100);
-      
-      // Apply syntax highlighting to code blocks
-      if (typeof Prism !== 'undefined') {
-        Prism.highlightAll();
+      if (wasExpanded) {
+        document.getElementById('TechnicalWriteupContent')?.classList.add('expanded');
+        document.getElementById('TechCollapseIcon')?.classList.add('expanded');
       }
+      setTimeout(addImageClickHandlers, 100);
+      if (typeof Prism !== 'undefined') Prism.highlightAll();
     }
 
     window.toggleTechnicalWriteup = function() {
-      const content = document.getElementById("technicalWriteupContent");
-      const icon = document.getElementById("techCollapseIcon");
-      
-      if (content && icon) {
-        if (content.classList.contains("expanded")) {
-          content.classList.remove("expanded");
-          icon.classList.remove("expanded");
-        } else {
-          content.classList.add("expanded");
-          icon.classList.add("expanded");
-        }
-      }
+      toggleWriteup('');
     };
 
     function renderVotes() {
@@ -1309,14 +1311,14 @@
       list.innerHTML = html;
     }
 
-    function getVoteDistribution() {
-      if (!state.votes || Object.keys(state.votes).length === 0) {
+    function getVoteDistribution(votesOverride) {
+      const votes = votesOverride || state.votes;
+      if (!votes || Object.keys(votes).length === 0) {
         return [];
       }
 
-      // Count votes by value
       const voteCounts = {};
-      Object.values(state.votes).forEach(points => {
+      Object.values(votes).forEach(points => {
         voteCounts[points] = (voteCounts[points] || 0) + 1;
       });
 
@@ -1331,26 +1333,303 @@
         });
     }
 
+    // --- Async mode ---
+
+    function switchTab(mode) {
+      currentMode = mode;
+      document.getElementById('liveTab').classList.toggle('active', mode === 'live');
+      document.getElementById('asyncTab').classList.toggle('active', mode === 'async');
+      document.getElementById('liveContent').style.display = mode === 'live' ? '' : 'none';
+      document.getElementById('asyncContent').style.display = mode === 'async' ? '' : 'none';
+      if (mode === 'async') renderAsyncAll();
+      renderTicketsSidebar();
+    }
+
+    function handleTicketClick(index, ticketKey) {
+      if (currentMode === 'async') {
+        asyncNavigate(index);
+      } else {
+        navigateToTicketByIndex(index);
+      }
+    }
+
+    function getAsyncCurrentTicket() {
+      if (!state.asyncTickets || state.asyncTickets.length === 0) return null;
+      if (asyncCurrentIndex < 0 || asyncCurrentIndex >= state.asyncTickets.length) return null;
+      return state.asyncTickets[asyncCurrentIndex];
+    }
+
+    function getAsyncCurrentVotes() {
+      const ticket = getAsyncCurrentTicket();
+      if (!ticket) return {};
+      return state.asyncVotesByTicket[ticket.key] || {};
+    }
+
+    function getAsyncCurrentRevealed() {
+      const ticket = getAsyncCurrentTicket();
+      if (!ticket) return false;
+      return state.asyncRevealedByTicket[ticket.key] || false;
+    }
+
+    function asyncNavigate(index) {
+      if (index < 0 || index >= state.asyncTickets.length) return;
+      asyncCurrentIndex = index;
+      renderAsyncAll();
+      renderTicketsSidebar();
+    }
+
+    function generateTicketHtml(ticketData, prefix) {
+      if (!ticketData) return null;
+      const p = prefix || '';
+
+      let html = `
+        <div class="ticket-header">
+          <div>
+            <div class="ticket-title">${escapeHtml(ticketData.formatted_title || ticketData.key)}</div>
+            <div class="ticket-meta">
+              ${ticketData.status ? `<div class="ticket-meta-item"><span class="ticket-meta-label">Status:</span><span>${escapeHtml(ticketData.status)}</span></div>` : ''}
+              ${ticketData.priority ? `<div class="ticket-meta-item"><span class="ticket-meta-label">Priority:</span><span>${escapeHtml(ticketData.priority)}</span></div>` : ''}
+              ${ticketData.assignee ? `<div class="ticket-meta-item"><span class="ticket-meta-label">Assignee:</span><span>${escapeHtml(ticketData.assignee)}</span></div>` : ''}
+            </div>
+          </div>
+        </div>
+        <div class="ticket-content">`;
+
+      if (ticketData.description && ticketData.description.trim()) {
+        html += `<div class="ticket-section-block"><div class="section-header">Description</div><div class="section-content">${ticketData.description}</div></div>`;
+      }
+      if (ticketData.acceptance_criteria && ticketData.acceptance_criteria.trim()) {
+        html += `<div class="ticket-section-block"><div class="section-header">Acceptance Criteria</div><div class="section-content">${ticketData.acceptance_criteria}</div></div>`;
+      }
+      if (ticketData.technical_writeup && ticketData.technical_writeup.trim()) {
+        html += `
+          <div class="ticket-section-block">
+            <div class="collapsible-section">
+              <div class="collapsible-header" onclick="toggleWriteup('${p}')">
+                <div class="section-header">Technical Writeup</div>
+                <span class="collapse-icon" id="${p}TechCollapseIcon">▼</span>
+              </div>
+              <div class="collapsible-content" id="${p}TechnicalWriteupContent">
+                <div class="section-content">${ticketData.technical_writeup}</div>
+              </div>
+            </div>
+          </div>`;
+      }
+      if (ticketData.attachments && ticketData.attachments.length > 0) {
+        html += `<div class="ticket-section-block"><div class="section-header">Attachments</div><div class="section-content"><div class="attachments-list">`;
+        ticketData.attachments.forEach(att => {
+          const sizeText = att.size ? `(${formatFileSize(att.size)})` : '';
+          const icon = att.is_image ? '🖼️' : '📎';
+          const url = att.proxy_url || att.url;
+          html += `<div class="jira-attachment"><a href="${url}" target="_blank" class="attachment-link">${icon} ${escapeHtml(att.filename)} ${sizeText}</a></div>`;
+        });
+        html += `</div></div></div>`;
+      }
+      html += '</div>';
+      return html;
+    }
+
+    window.toggleWriteup = function(prefix) {
+      const p = prefix || '';
+      const content = document.getElementById(p + 'TechnicalWriteupContent');
+      const icon = document.getElementById(p + 'TechCollapseIcon');
+      if (content && icon) {
+        content.classList.toggle('expanded');
+        icon.classList.toggle('expanded');
+      }
+    };
+
+    function renderAsyncTicket() {
+      const display = document.getElementById('asyncTicketDisplay');
+      const ticket = getAsyncCurrentTicket();
+      const html = generateTicketHtml(ticket, 'async');
+      if (!html) {
+        display.innerHTML = '<span>No ticket loaded - Load sprint or enter a JIRA ticket to begin</span>';
+        display.classList.add('empty');
+        return;
+      }
+      display.classList.remove('empty');
+      const wasExpanded = document.getElementById('asyncTechnicalWriteupContent')?.classList.contains('expanded');
+      display.innerHTML = html;
+      if (wasExpanded) {
+        document.getElementById('asyncTechnicalWriteupContent')?.classList.add('expanded');
+        document.getElementById('asyncTechCollapseIcon')?.classList.add('expanded');
+      }
+      setTimeout(addImageClickHandlers, 100);
+      if (typeof Prism !== 'undefined') Prism.highlightAll();
+    }
+
+    function renderAsyncVotes() {
+      const list = document.getElementById('asyncParticipantsList');
+      const revealBtn = document.getElementById('asyncRevealBtn');
+      const clearBtn = document.getElementById('asyncClearBtn');
+      const badge = document.getElementById('asyncVoteBadge');
+      const votes = getAsyncCurrentVotes();
+      const revealed = getAsyncCurrentRevealed();
+      const hasVotes = Object.keys(votes).length > 0;
+
+      revealBtn.disabled = !hasVotes;
+      clearBtn.disabled = !hasVotes;
+      badge.textContent = `${Object.keys(votes).length} voted`;
+
+      if (!hasVotes) {
+        list.innerHTML = '<div class="empty-state">No votes yet</div>';
+        return;
+      }
+
+      let html = Object.entries(votes)
+        .map(([name, points]) => `
+          <div class="participant">
+            <span class="participant-name">${escapeHtml(name)}</span>
+            ${revealed
+              ? `<span class="points">${escapeHtml(points)}</span>`
+              : `<span class="participant-status">✓ Voted</span>`}
+          </div>`).join('');
+
+      if (revealed) {
+        const dist = getVoteDistribution(votes);
+        if (dist.length > 0) {
+          const maxCount = Math.max(...dist.map(d => d.count));
+          const hasMultiple = dist.length > 1;
+          html += `
+            <div class="vote-distribution">
+              <div class="distribution-header">Vote Distribution</div>
+              <div class="distribution-items">
+                ${dist.map(({value, count}) => {
+                  const isWinner = hasMultiple && count === maxCount;
+                  return `
+                    <div class="distribution-item${isWinner ? ' winner' : ''}">
+                      <span class="distribution-value">${escapeHtml(value)}</span>
+                      <span class="distribution-separator">→</span>
+                      <span class="distribution-count">${count} ${count === 1 ? 'vote' : 'votes'}${isWinner ? '<span class="winner-badge">🏆</span>' : ''}</span>
+                    </div>`;
+                }).join('')}
+              </div>
+            </div>`;
+        }
+      }
+      list.innerHTML = html;
+    }
+
+    function renderAsyncNavigation() {
+      const nav = document.getElementById('asyncTicketNavigation');
+      const prevBtn = document.getElementById('asyncPrevTicketBtn');
+      const nextBtn = document.getElementById('asyncNextTicketBtn');
+      const pos = document.getElementById('asyncTicketPosition');
+
+      if (!state.asyncTickets || state.asyncTickets.length === 0) {
+        nav.style.display = 'none';
+        return;
+      }
+      nav.style.display = 'flex';
+
+      if (asyncCurrentIndex >= state.asyncTickets.length) asyncCurrentIndex = state.asyncTickets.length - 1;
+      if (asyncCurrentIndex < 0) asyncCurrentIndex = 0;
+
+      pos.textContent = `${asyncCurrentIndex + 1} / ${state.asyncTickets.length}`;
+      prevBtn.disabled = asyncCurrentIndex <= 0;
+      nextBtn.disabled = asyncCurrentIndex >= state.asyncTickets.length - 1;
+    }
+
+    function renderAsyncAll() {
+      renderAsyncTicket();
+      renderAsyncVotes();
+      renderAsyncNavigation();
+    }
+
+    async function asyncVote() {
+      const userName = document.getElementById('asyncUserName').value.trim();
+      const points = document.getElementById('asyncStoryPoints').value;
+      const ticket = getAsyncCurrentTicket();
+
+      if (!userName || !points) { showStatus('Please enter your name and select points', true); return; }
+      if (!ticket) { showStatus('Please load a ticket before voting', true); return; }
+
+      try {
+        const response = await fetch('/estimations/async_vote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+          body: JSON.stringify({ ticket_id: ticket.key, user_name: userName, points })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Failed to vote');
+        if (result.state) syncState(result.state, 'async_vote_added');
+        document.getElementById('asyncStoryPoints').value = '';
+        showStatus('Vote submitted');
+      } catch (error) {
+        showStatus(error.message, true);
+      }
+    }
+
+    async function asyncReveal() {
+      const ticket = getAsyncCurrentTicket();
+      if (!ticket) return;
+
+      try {
+        const response = await fetch('/estimations/async_reveal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+          body: JSON.stringify({ ticket_id: ticket.key })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Failed to reveal');
+        if (result.state) syncState(result.state, 'async_votes_revealed');
+        showStatus('Votes revealed');
+      } catch (error) {
+        showStatus(error.message, true);
+      }
+    }
+
+    async function asyncClear() {
+      const ticket = getAsyncCurrentTicket();
+      if (!ticket) return;
+
+      try {
+        const response = await fetch('/estimations/async_clear', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+          body: JSON.stringify({ ticket_id: ticket.key })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Failed to clear');
+        if (result.state) syncState(result.state, 'async_votes_cleared');
+        showStatus('Votes cleared');
+      } catch (error) {
+        showStatus(error.message, true);
+      }
+    }
+
+    window.handleTicketClick = handleTicketClick;
+
     function renderTicketsSidebar() {
       const list = document.getElementById("ticketsList");
       const count = document.getElementById("ticketsCount");
       const navigation = document.getElementById("ticketNavigation");
 
-      if (!state.tickets || state.tickets.length === 0) {
+      const tickets = currentMode === 'async' ? (state.asyncTickets || []) : (state.tickets || []);
+      const votesMap = currentMode === 'async' ? state.asyncVotesByTicket : state.votesByTicket;
+      const revealedMap = currentMode === 'async' ? state.asyncRevealedByTicket : state.revealedByTicket;
+      const activeIndex = currentMode === 'async' ? asyncCurrentIndex : state.currentTicketIndex;
+
+      if (tickets.length === 0) {
         list.innerHTML = '<div style="text-align: center; padding: 40px 20px; color: #999; font-style: italic;">Load tickets from sprint to begin</div>';
         count.textContent = "0 tickets";
         navigation.style.display = "none";
         return;
       }
 
-      count.textContent = `${state.tickets.length} ticket${state.tickets.length !== 1 ? 's' : ''}`;
-      navigation.style.display = "flex";
+      count.textContent = `${tickets.length} ticket${tickets.length !== 1 ? 's' : ''}`;
+      if (currentMode === 'live') navigation.style.display = "flex";
 
-      let html = state.tickets.map((ticket, index) => {
-        const isActive = index === state.currentTicketIndex;
-        const ticketVotes = state.votesByTicket[ticket.key] || {};
+      let html = tickets.map((ticket, index) => {
+        const isActive = index === activeIndex;
+        const ticketVotes = currentMode === 'live' && ticket.key === state.ticketId
+          ? (state.votes || {})
+          : (votesMap[ticket.key] || {});
         const voteCount = Object.keys(ticketVotes).length;
-        const isRevealed = state.revealedByTicket[ticket.key] || false;
+        const isRevealed = currentMode === 'live' && ticket.key === state.ticketId
+          ? state.revealed
+          : (revealedMap[ticket.key] || false);
 
         let statusHtml = '';
         if (voteCount > 0) {
@@ -1358,11 +1637,11 @@
         }
 
         return `
-          <div class="ticket-item${isActive ? ' active' : ''}" data-index="${index}" onclick="navigateToTicketByIndex(${index})">
+          <div class="ticket-item${isActive ? ' active' : ''}" data-index="${index}" onclick="handleTicketClick(${index}, '${escapeHtml(ticket.key)}')">
             <div class="ticket-item-key">${escapeHtml(ticket.key)}</div>
             <div class="ticket-item-summary">${escapeHtml(ticket.summary)}</div>
             <div class="ticket-item-status">
-              <span>${index + 1} of ${state.tickets.length}</span>
+              <span>${index + 1} of ${tickets.length}</span>
               ${statusHtml}
             </div>
           </div>
@@ -1447,6 +1726,9 @@
       renderVotes();
       updatePresenceBadge();
       renderTicketsSidebar();
+      if (currentMode === 'async') {
+        renderAsyncAll();
+      }
     }
 
     // Enhanced WebSocket subscription with robust error handling
@@ -1739,11 +2021,11 @@
 
     // Keyboard shortcuts for navigation
     document.addEventListener("keydown", (e) => {
-      // Only handle if not in an input field
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
         return;
       }
 
+      if (currentMode !== 'live') return;
       if (state.tickets.length === 0) return;
 
       if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
@@ -2036,6 +2318,88 @@
         cleanup();
       });
       
+      // Tab switching
+      document.getElementById('liveTab').addEventListener('click', () => switchTab('live'));
+      document.getElementById('asyncTab').addEventListener('click', () => switchTab('async'));
+
+      // Sync name between live and async, persist in localStorage
+      const savedName = localStorage.getItem('planningPokerName');
+      if (savedName) {
+        document.getElementById('asyncUserName').value = savedName;
+        document.getElementById('userName').value = savedName;
+      }
+      document.getElementById('asyncUserName').addEventListener('input', (e) => {
+        localStorage.setItem('planningPokerName', e.target.value.trim());
+        document.getElementById('userName').value = e.target.value;
+      });
+      document.getElementById('userName').addEventListener('input', (e) => {
+        localStorage.setItem('planningPokerName', e.target.value.trim());
+        document.getElementById('asyncUserName').value = e.target.value;
+      });
+
+      // Async sprint/ticket loading
+      document.getElementById('asyncFetchSprintBtn').addEventListener('click', async () => {
+        const sprintName = document.getElementById('asyncSprintName').value.trim();
+        const btn = document.getElementById('asyncFetchSprintBtn');
+        if (!sprintName) { alert('Please enter a sprint name'); return; }
+        btn.disabled = true; btn.textContent = 'Loading...';
+        try {
+          const response = await fetch('/estimations/async_fetch_sprint_tickets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: JSON.stringify({ sprint_name: sprintName })
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || 'Failed to fetch sprint');
+          if (result.state) syncState(result.state, 'async_tickets_loaded');
+          asyncCurrentIndex = 0;
+          renderAsyncAll();
+          showStatus(result.message);
+        } catch (error) {
+          showStatus(error.message, true);
+        } finally {
+          btn.disabled = false; btn.textContent = 'Load Sprint';
+        }
+      });
+
+      document.getElementById('asyncFetchJiraBtn').addEventListener('click', async () => {
+        const jiraInput = document.getElementById('asyncJiraTicket').value.trim();
+        const btn = document.getElementById('asyncFetchJiraBtn');
+        if (!jiraInput) { alert('Please enter a JIRA ticket key or URL'); return; }
+        btn.disabled = true; btn.textContent = 'Fetching...';
+        try {
+          const response = await fetch('/estimations/async_fetch_jira_ticket', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: JSON.stringify({ jira_input: jiraInput })
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || 'Failed to fetch ticket');
+          if (result.state) syncState(result.state, 'async_ticket_added');
+          asyncCurrentIndex = state.asyncTickets.length - 1;
+          renderAsyncAll();
+          document.getElementById('asyncJiraTicket').value = '';
+          showStatus(result.message);
+        } catch (error) {
+          showStatus(error.message, true);
+        } finally {
+          btn.disabled = false; btn.textContent = 'Fetch Ticket';
+        }
+      });
+
+      // Async navigation
+      document.getElementById('asyncPrevTicketBtn').addEventListener('click', () => {
+        if (asyncCurrentIndex > 0) asyncNavigate(asyncCurrentIndex - 1);
+      });
+      document.getElementById('asyncNextTicketBtn').addEventListener('click', () => {
+        if (asyncCurrentIndex < state.asyncTickets.length - 1) asyncNavigate(asyncCurrentIndex + 1);
+      });
+
+      // Async vote/reveal/clear
+      document.getElementById('asyncSubmitBtn').addEventListener('click', () => asyncVote());
+      document.getElementById('asyncRevealBtn').addEventListener('click', () => asyncReveal());
+      document.getElementById('asyncClearBtn').addEventListener('click', () => asyncClear());
+
       // Initialize WebSocket connection
       setupSubscription();
       
