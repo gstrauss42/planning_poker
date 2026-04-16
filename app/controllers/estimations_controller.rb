@@ -261,6 +261,131 @@ class EstimationsController < ApplicationController
     end
   end
 
+  def async_fetch_sprint_tickets
+    sprint_name = params[:sprint_name] || "Refinement & Estimations"
+
+    begin
+      jira_service = JiraService.new
+      tickets = jira_service.fetch_sprint_tickets(sprint_name)
+
+      if tickets.empty?
+        render json: { error: "No tickets found in sprint '#{sprint_name}'" }, status: :unprocessable_entity
+        return
+      end
+
+      AtomicStateManager.set_async_tickets(tickets)
+      state = AtomicStateManager.get_broadcast_state
+
+      render json: {
+        success: true,
+        state: state,
+        message: "Loaded #{tickets.count} tickets for async voting",
+        timestamp: Time.current.to_i
+      }
+    rescue JiraService::JiraError => e
+      Rails.logger.error("JIRA async sprint fetch error: #{e.message}")
+      render json: { error: e.message }, status: :unprocessable_entity
+    rescue StandardError => e
+      Rails.logger.error("Unexpected error fetching async sprint: #{e.message}")
+      render json: { error: "An unexpected error occurred" }, status: :internal_server_error
+    end
+  end
+
+  def async_fetch_jira_ticket
+    jira_input = params[:jira_input]
+
+    if jira_input.blank?
+      render json: { error: "Please provide a JIRA ticket key or URL" }, status: :bad_request
+      return
+    end
+
+    begin
+      jira_service = JiraService.new
+      ticket_data = jira_service.fetch_ticket(jira_input)
+
+      AtomicStateManager.add_async_ticket(ticket_data)
+      state = AtomicStateManager.get_broadcast_state
+
+      render json: {
+        success: true,
+        state: state,
+        message: "Ticket added for async voting",
+        timestamp: Time.current.to_i
+      }
+    rescue JiraService::JiraError => e
+      Rails.logger.error("JIRA async fetch error: #{e.message}")
+      render json: { error: e.message }, status: :unprocessable_entity
+    rescue StandardError => e
+      Rails.logger.error("Unexpected error: #{e.message}")
+      render json: { error: "An unexpected error occurred" }, status: :internal_server_error
+    end
+  end
+
+  def async_vote
+    ticket_id = params[:ticket_id]
+    user_name = params[:user_name]
+    points = params[:points]
+
+    if ticket_id.blank? || user_name.blank? || points.blank?
+      render json: { error: "Ticket ID, name, and points are required" }, status: :bad_request
+      return
+    end
+
+    begin
+      AtomicStateManager.add_vote_for_ticket(ticket_id, user_name, points)
+      state = AtomicStateManager.get_broadcast_state
+      render json: { success: true, state: state, timestamp: Time.current.to_i }
+    rescue AtomicStateManager::StateError => e
+      Rails.logger.error "[Controller] State error during async vote: #{e.message}"
+      render json: { error: "Failed to submit vote. Please try again." }, status: :unprocessable_entity
+    rescue StandardError => e
+      Rails.logger.error "[Controller] Unexpected error during async vote: #{e.message}"
+      render json: { error: "An unexpected error occurred." }, status: :internal_server_error
+    end
+  end
+
+  def async_reveal
+    ticket_id = params[:ticket_id]
+
+    if ticket_id.blank?
+      render json: { error: "Ticket ID is required" }, status: :bad_request
+      return
+    end
+
+    begin
+      AtomicStateManager.reveal_votes_for_ticket(ticket_id)
+      state = AtomicStateManager.get_broadcast_state
+      render json: { success: true, state: state, timestamp: Time.current.to_i }
+    rescue AtomicStateManager::StateError => e
+      Rails.logger.error "[Controller] State error during async reveal: #{e.message}"
+      render json: { error: "Failed to reveal votes." }, status: :unprocessable_entity
+    rescue StandardError => e
+      Rails.logger.error "[Controller] Unexpected error during async reveal: #{e.message}"
+      render json: { error: "An unexpected error occurred." }, status: :internal_server_error
+    end
+  end
+
+  def async_clear
+    ticket_id = params[:ticket_id]
+
+    if ticket_id.blank?
+      render json: { error: "Ticket ID is required" }, status: :bad_request
+      return
+    end
+
+    begin
+      AtomicStateManager.clear_votes_for_ticket(ticket_id)
+      state = AtomicStateManager.get_broadcast_state
+      render json: { success: true, state: state, timestamp: Time.current.to_i }
+    rescue AtomicStateManager::StateError => e
+      Rails.logger.error "[Controller] State error during async clear: #{e.message}"
+      render json: { error: "Failed to clear votes." }, status: :unprocessable_entity
+    rescue StandardError => e
+      Rails.logger.error "[Controller] Unexpected error during async clear: #{e.message}"
+      render json: { error: "An unexpected error occurred." }, status: :internal_server_error
+    end
+  end
+
   def get_session_state
     begin
       state = AtomicStateManager.get_broadcast_state
