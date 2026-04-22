@@ -342,6 +342,86 @@ class AtomicStateManager
       end
     end
 
+    def remove_ticket(ticket_id)
+      atomic_update("remove_ticket") do
+        current_state = get_state
+        tickets = current_state[:tickets] || []
+        tid = ticket_id.to_s
+
+        index = tickets.find_index { |t| t[:key].to_s == tid }
+        return current_state if index.nil?
+
+        new_state = current_state.dup
+        new_tickets = tickets.dup
+        new_tickets.delete_at(index)
+        new_state[:tickets] = new_tickets
+
+        new_state[:votes_by_ticket] = (current_state[:votes_by_ticket] || {}).dup
+        new_state[:votes_by_ticket].delete(tid)
+        new_state[:votes_by_ticket].delete(tid.to_sym)
+
+        new_state[:revealed_by_ticket] = (current_state[:revealed_by_ticket] || {}).dup
+        new_state[:revealed_by_ticket].delete(tid)
+        new_state[:revealed_by_ticket].delete(tid.to_sym)
+
+        current_index = current_state[:current_ticket_index] || 0
+
+        if new_tickets.empty?
+          new_state[:current_ticket_index] = 0
+          new_state[:ticket_data] = nil
+          new_state[:ticket_title] = nil
+          new_state[:ticket_id] = nil
+          new_state[:votes] = {}
+          new_state[:revealed] = false
+        elsif index == current_index
+          new_index = [ current_index, new_tickets.length - 1 ].min
+          new_current = new_tickets[new_index]
+          key_sym = new_current[:key].to_s.to_sym
+
+          new_state[:current_ticket_index] = new_index
+          new_state[:ticket_data] = new_current
+          new_state[:ticket_title] = new_current[:formatted_title]
+          new_state[:ticket_id] = new_current[:key]
+          new_state[:votes] = new_state[:votes_by_ticket][new_current[:key].to_s] ||
+                              new_state[:votes_by_ticket][key_sym] || {}
+          new_state[:revealed] = new_state[:revealed_by_ticket][new_current[:key].to_s] ||
+                                 new_state[:revealed_by_ticket][key_sym] || false
+        else
+          # Removed a non-current ticket; keep live view but shift index if needed
+          new_state[:current_ticket_index] = index < current_index ? current_index - 1 : current_index
+        end
+
+        new_state[:version] = (current_state[:version] || 0) + 1
+        new_state[:last_updated] = Time.current.to_i
+
+        save_state(new_state)
+        broadcast_state_change("ticket_removed", new_state)
+        new_state
+      end
+    end
+
+    def clear_tickets
+      atomic_update("clear_tickets") do
+        current_state = get_state
+        new_state = current_state.dup
+        new_state[:tickets] = []
+        new_state[:current_ticket_index] = 0
+        new_state[:votes_by_ticket] = {}
+        new_state[:revealed_by_ticket] = {}
+        new_state[:ticket_data] = nil
+        new_state[:ticket_title] = nil
+        new_state[:ticket_id] = nil
+        new_state[:votes] = {}
+        new_state[:revealed] = false
+        new_state[:version] = (current_state[:version] || 0) + 1
+        new_state[:last_updated] = Time.current.to_i
+
+        save_state(new_state)
+        broadcast_state_change("tickets_cleared", new_state)
+        new_state
+      end
+    end
+
     def clear_votes(expected_version = nil)
       Rails.logger.info "[AtomicState] clear_votes called with expected_version: #{expected_version}"
 
@@ -453,6 +533,53 @@ class AtomicStateManager
 
         save_async_state(async_state)
         broadcast_state_change("async_votes_cleared", async_state)
+        async_state
+      end
+    end
+
+    def remove_async_ticket(ticket_id)
+      atomic_update("remove_async_ticket") do
+        async_state = get_async_state
+        tickets = async_state[:async_tickets] || []
+        tid = ticket_id.to_s
+
+        index = tickets.find_index { |t| t[:key].to_s == tid }
+        return async_state if index.nil?
+
+        new_tickets = tickets.dup
+        new_tickets.delete_at(index)
+        async_state[:async_tickets] = new_tickets
+
+        avbt = (async_state[:async_votes_by_ticket] || {}).dup
+        avbt.delete(tid)
+        avbt.delete(tid.to_sym)
+        async_state[:async_votes_by_ticket] = avbt
+
+        arbt = (async_state[:async_revealed_by_ticket] || {}).dup
+        arbt.delete(tid)
+        arbt.delete(tid.to_sym)
+        async_state[:async_revealed_by_ticket] = arbt
+
+        async_state[:version] = (async_state[:version] || 0) + 1
+        async_state[:last_updated] = Time.current.to_i
+
+        save_async_state(async_state)
+        broadcast_state_change("async_ticket_removed", async_state)
+        async_state
+      end
+    end
+
+    def clear_async_tickets
+      atomic_update("clear_async_tickets") do
+        async_state = get_async_state
+        async_state[:async_tickets] = []
+        async_state[:async_votes_by_ticket] = {}
+        async_state[:async_revealed_by_ticket] = {}
+        async_state[:version] = (async_state[:version] || 0) + 1
+        async_state[:last_updated] = Time.current.to_i
+
+        save_async_state(async_state)
+        broadcast_state_change("async_tickets_cleared", async_state)
         async_state
       end
     end
