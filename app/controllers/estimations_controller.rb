@@ -261,6 +261,37 @@ class EstimationsController < ApplicationController
     end
   end
 
+  def remove_ticket
+    ticket_id = params[:ticket_id]
+
+    if ticket_id.blank?
+      render json: { error: "Ticket ID is required" }, status: :bad_request
+      return
+    end
+
+    begin
+      AtomicStateManager.remove_ticket(ticket_id)
+      render json: { success: true, message: "Ticket removed", timestamp: Time.current.to_i }
+    rescue AtomicStateManager::StateError => e
+      Rails.logger.error "[Controller] State error during ticket removal: #{e.message}"
+      render json: { error: "Failed to remove ticket. Please try again." }, status: :unprocessable_entity
+    rescue StandardError => e
+      Rails.logger.error "[Controller] Unexpected error during ticket removal: #{e.message}"
+      render json: { error: "An unexpected error occurred." }, status: :internal_server_error
+    end
+  end
+
+  def clear_tickets
+    AtomicStateManager.clear_tickets
+    render json: { success: true, message: "Tickets cleared", timestamp: Time.current.to_i }
+  rescue AtomicStateManager::StateError => e
+    Rails.logger.error "[Controller] State error during tickets clear: #{e.message}"
+    render json: { error: "Failed to clear tickets. Please try again." }, status: :unprocessable_entity
+  rescue StandardError => e
+    Rails.logger.error "[Controller] Unexpected error during tickets clear: #{e.message}"
+    render json: { error: "An unexpected error occurred." }, status: :internal_server_error
+  end
+
   def async_fetch_sprint_tickets
     sprint_name = params[:sprint_name] || "Refinement & Estimations"
 
@@ -384,6 +415,39 @@ class EstimationsController < ApplicationController
       Rails.logger.error "[Controller] Unexpected error during async clear: #{e.message}"
       render json: { error: "An unexpected error occurred." }, status: :internal_server_error
     end
+  end
+
+  def async_remove_ticket
+    ticket_id = params[:ticket_id]
+
+    if ticket_id.blank?
+      render json: { error: "Ticket ID is required" }, status: :bad_request
+      return
+    end
+
+    begin
+      AtomicStateManager.remove_async_ticket(ticket_id)
+      state = AtomicStateManager.get_broadcast_state
+      render json: { success: true, state: state, timestamp: Time.current.to_i }
+    rescue AtomicStateManager::StateError => e
+      Rails.logger.error "[Controller] State error during async ticket removal: #{e.message}"
+      render json: { error: "Failed to remove ticket." }, status: :unprocessable_entity
+    rescue StandardError => e
+      Rails.logger.error "[Controller] Unexpected error during async ticket removal: #{e.message}"
+      render json: { error: "An unexpected error occurred." }, status: :internal_server_error
+    end
+  end
+
+  def async_clear_tickets
+    AtomicStateManager.clear_async_tickets
+    state = AtomicStateManager.get_broadcast_state
+    render json: { success: true, state: state, timestamp: Time.current.to_i }
+  rescue AtomicStateManager::StateError => e
+    Rails.logger.error "[Controller] State error during async tickets clear: #{e.message}"
+    render json: { error: "Failed to clear tickets." }, status: :unprocessable_entity
+  rescue StandardError => e
+    Rails.logger.error "[Controller] Unexpected error during async tickets clear: #{e.message}"
+    render json: { error: "An unexpected error occurred." }, status: :internal_server_error
   end
 
   def get_session_state
