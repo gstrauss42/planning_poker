@@ -9,6 +9,7 @@ Rails.application.routes.draw do
   post "estimations/submit"
   post "estimations/reveal"
   post "estimations/clear"
+  post "estimations/save_story_points"
   post "estimations/fetch_jira_ticket"
   post "estimations/fetch_sprint_tickets"
   post "estimations/navigate_ticket"
