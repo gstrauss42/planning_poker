@@ -1,6 +1,12 @@
 <!DOCTYPE html>
 <html>
 <head>
+<script>
+  (function() {
+    var theme = localStorage.getItem('ppTheme');
+    if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  })();
+</script>
   <title>Planning Poker</title>
   <%= csrf_meta_tags %>
   <%= csp_meta_tag %>
@@ -21,6 +27,62 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-css.min.js"></script>
   <style>
+    :root {
+      --bg-primary: #ffffff;
+      --bg-secondary: #f5f5f5;
+      --bg-tertiary: #f9f9f9;
+      --bg-sidebar: #ffffff;
+      --bg-sidebar-header: #e3f2fd;
+      --text-primary: #333333;
+      --text-secondary: #666666;
+      --text-muted: #999999;
+      --border-color: #eeeeee;
+      --border-color-strong: #dddddd;
+      --border-color-accent: #2196F3;
+      --color-blue: #2196F3;
+      --color-blue-light: #e3f2fd;
+      --color-blue-disabled: #90caf9;
+      --color-green: #4CAF50;
+      --color-green-light: #e8f5e9;
+      --color-green-dark: #2e7d32;
+      --color-green-hover: #45a049;
+      --color-red: #f44336;
+      --color-red-bg: #ffebee;
+      --color-red-dark: #c62828;
+      --color-gray-disabled: #cccccc;
+      --shadow-overlay: rgba(0,0,0,0.1);
+      --btn-overlay: rgba(255,255,255,0.3);
+      --gradient-toolbar: linear-gradient(to bottom, #fff 70%, rgba(255,255,255,0));
+      --bg-hover: #f0f7ff;
+      --color-green-dark-text: #2e7d32;
+      --color-win-separator: #81c784;
+    }
+
+    [data-theme="dark"] {
+      --bg-primary: #1e1e1e;
+      --bg-secondary: #2a2a2a;
+      --bg-tertiary: #252525;
+      --bg-sidebar: #1a1a1a;
+      --bg-sidebar-header: #1a3a5c;
+      --text-primary: #e0e0e0;
+      --text-secondary: #aaaaaa;
+      --text-muted: #777777;
+      --border-color: #3a3a3a;
+      --border-color-strong: #444444;
+      --border-color-accent: #2196F3;
+      --color-blue-light: #1a3a5c;
+      --color-green-light: #1a3a1a;
+      --color-red-bg: #3a1a1a;
+      --color-red-dark: #ef9a9a;
+      --shadow-overlay: rgba(0,0,0,0.4);
+      --btn-overlay: rgba(0,0,0,0.3);
+      --gradient-toolbar: linear-gradient(to bottom, #1e1e1e 70%, rgba(30,30,30,0));
+      --bg-hover: #2a3a4a;
+      --color-gray-disabled: #555555;
+      --color-green-dark-text: #81c784;
+      --color-win-separator: #4caf50;
+    }
+
     * {
       margin: 0;
       padding: 0;
@@ -28,26 +90,26 @@
     }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #f5f5f5;
+      background: var(--bg-secondary);
       padding: 20px;
     }
     .container {
       max-width: 1000px;
       margin: 0 auto;
-      background: white;
+      background: var(--bg-primary);
       padding: 40px;
       border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      box-shadow: 0 2px 8px var(--shadow-overlay);
     }
     h1 {
       margin: 0 0 30px 0;
-      color: #333;
+      color: var(--text-primary);
     }
     .presence-badge {
       font-size: 16px;
       font-weight: 500;
       color: #2196F3;
-      background: #e3f2fd;
+      background: var(--color-blue-light);
       padding: 8px 16px;
       border-radius: 20px;
       border: 2px solid #2196F3;
@@ -55,13 +117,21 @@
     }
     .presence-badge.all-voted {
       color: #4CAF50;
-      background: #e8f5e9;
+      background: var(--color-green-light);
       border-color: #4CAF50;
+      animation: badge-pulse 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) 1;
+    }
+    @keyframes badge-pulse {
+      0%   { transform: scale(1); }
+      30%  { transform: scale(1.18); }
+      60%  { transform: scale(0.95); }
+      80%  { transform: scale(1.06); }
+      100% { transform: scale(1); }
     }
     .ticket-section {
       margin-bottom: 30px;
       padding-bottom: 20px;
-      border-bottom: 2px solid #eee;
+      border-bottom: 2px solid var(--border-color);
     }
     .jira-input-group {
       display: flex;
@@ -69,15 +139,18 @@
       margin-bottom: 20px;
     }
     .ticket-display {
-      background: #e3f2fd;
+      background: var(--color-blue-light);
       border-radius: 8px;
       padding: 20px;
       margin-top: 15px;
       min-height: 100px;
     }
+    .ticket-display.fading-in {
+      transition: opacity 0.25s ease;
+    }
     .ticket-display.empty {
       text-align: center;
-      color: #999;
+      color: var(--text-muted);
       font-style: italic;
       padding: 40px;
     }
@@ -87,7 +160,7 @@
       align-items: start;
       margin-bottom: 20px;
       padding-bottom: 15px;
-      border-bottom: 2px solid #2196F3;
+      border-bottom: 2px solid var(--border-color-accent);
     }
     .ticket-title {
       font-size: 24px;
@@ -99,7 +172,7 @@
       display: flex;
       gap: 20px;
       font-size: 14px;
-      color: #666;
+      color: var(--text-secondary);
       margin-top: 8px;
     }
     .ticket-meta-item {
@@ -119,13 +192,13 @@
     .section-header {
       font-size: 16px;
       font-weight: 600;
-      color: #333;
+      color: var(--text-primary);
       margin-bottom: 10px;
       padding-bottom: 5px;
-      border-bottom: 1px solid #ddd;
+      border-bottom: 1px solid var(--border-color-strong);
     }
     .section-content {
-      color: #555;
+      color: var(--text-primary);
       line-height: 1.6;
       font-size: 15px;
     }
@@ -133,7 +206,7 @@
       margin-top: 16px;
       margin-bottom: 8px;
       font-weight: 600;
-      color: #333;
+      color: var(--text-primary);
     }
     .section-content p {
       margin-bottom: 12px;
@@ -143,7 +216,7 @@
       padding-left: 28px;
     }
     .section-content code {
-      background: #f5f5f5;
+      background: var(--bg-secondary);
       padding: 2px 6px;
       border-radius: 3px;
       font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
@@ -166,10 +239,10 @@
       line-height: 1.5;
     }
     .section-content blockquote {
-      border-left: 4px solid #ddd;
+      border-left: 4px solid var(--border-color-strong);
       padding-left: 16px;
       margin: 12px 0;
-      color: #666;
+      color: var(--text-secondary);
       font-style: italic;
     }
     .section-content strong {
@@ -180,7 +253,7 @@
     }
     .section-content hr {
       border: none;
-      border-top: 1px solid #ddd;
+      border-top: 1px solid var(--border-color-strong);
       margin: 16px 0;
     }
     /* ADF Table Styles */
@@ -196,21 +269,21 @@
     }
     .section-content .adf-table th,
     .section-content .adf-table td {
-      border: 1px solid #ddd;
+      border: 1px solid var(--border-color-strong);
       padding: 10px 12px;
       text-align: left;
       vertical-align: top;
     }
     .section-content .adf-table th {
-      background: #f5f5f5;
+      background: var(--bg-secondary);
       font-weight: 600;
-      color: #333;
+      color: var(--text-primary);
     }
     .section-content .adf-table tr:nth-child(even) td {
-      background: #fafafa;
+      background: var(--bg-tertiary);
     }
     .section-content .adf-table tr:hover td {
-      background: #f0f7ff;
+      background: var(--bg-hover);
     }
     /* ADF Panel Styles */
     .section-content .adf-panel {
@@ -234,7 +307,7 @@
       font-size: 16px;
     }
     .section-content .adf-panel-info {
-      background: #e3f2fd;
+      background: var(--color-blue-light);
       border-left-color: #2196F3;
     }
     .section-content .adf-panel-info .adf-panel-header {
@@ -255,22 +328,22 @@
       color: #e65100;
     }
     .section-content .adf-panel-error {
-      background: #ffebee;
+      background: var(--color-red-bg);
       border-left-color: #f44336;
     }
     .section-content .adf-panel-error .adf-panel-header {
-      color: #c62828;
+      color: var(--color-red-dark);
     }
     .section-content .adf-panel-success {
-      background: #e8f5e9;
+      background: var(--color-green-light);
       border-left-color: #4CAF50;
     }
     .section-content .adf-panel-success .adf-panel-header {
-      color: #2e7d32;
+      color: var(--color-green-dark);
     }
     /* ADF Mention Styles */
     .section-content .adf-mention {
-      background: #e3f2fd;
+      background: var(--color-blue-light);
       color: #1565c0;
       padding: 2px 6px;
       border-radius: 3px;
@@ -290,11 +363,11 @@
       color: #616161;
     }
     .section-content .adf-status-blue {
-      background: #e3f2fd;
+      background: var(--color-blue-light);
       color: #1565c0;
     }
     .section-content .adf-status-green {
-      background: #e8f5e9;
+      background: var(--color-green-light);
       color: #2e7d32;
     }
     .section-content .adf-status-yellow {
@@ -302,8 +375,8 @@
       color: #f57f17;
     }
     .section-content .adf-status-red {
-      background: #ffebee;
-      color: #c62828;
+      background: var(--color-red-bg);
+      color: var(--color-red-dark);
     }
     .section-content .adf-status-purple {
       background: #f3e5f5;
@@ -311,30 +384,30 @@
     }
     /* ADF Date Styles */
     .section-content .adf-date {
-      background: #f5f5f5;
+      background: var(--bg-secondary);
       padding: 2px 6px;
       border-radius: 3px;
       font-size: 13px;
-      color: #666;
+      color: var(--text-secondary);
     }
     /* ADF Expand/Collapse Styles */
     .section-content .adf-expand {
-      border: 1px solid #ddd;
+      border: 1px solid var(--border-color-strong);
       border-radius: 4px;
       margin: 12px 0;
     }
     .section-content .adf-expand summary {
       padding: 10px 14px;
-      background: #f9f9f9;
+      background: var(--bg-tertiary);
       cursor: pointer;
       font-weight: 500;
       user-select: none;
     }
     .section-content .adf-expand summary:hover {
-      background: #f0f0f0;
+      background: var(--bg-hover);
     }
     .section-content .adf-expand[open] summary {
-      border-bottom: 1px solid #ddd;
+      border-bottom: 1px solid var(--border-color-strong);
     }
     .section-content .adf-expand > *:not(summary) {
       padding: 12px 14px;
@@ -344,17 +417,17 @@
       margin: 12px 0;
     }
     .section-content .adf-media-placeholder {
-      background: #f5f5f5;
-      border: 2px dashed #ddd;
+      background: var(--bg-secondary);
+      border: 2px dashed var(--border-color-strong);
       border-radius: 4px;
       padding: 20px;
       text-align: center;
-      color: #999;
+      color: var(--text-muted);
       font-style: italic;
     }
     /* ADF Inline Card (Smart Link) Styles */
     .section-content .adf-inline-card {
-      background: #f5f5f5;
+      background: var(--bg-secondary);
       padding: 2px 8px;
       border-radius: 3px;
       text-decoration: none;
@@ -363,11 +436,11 @@
       word-break: break-all;
     }
     .section-content .adf-inline-card:hover {
-      background: #e3f2fd;
+      background: var(--color-blue-light);
       text-decoration: underline;
     }
     .collapsible-section {
-      border: 1px solid #ddd;
+      border: 1px solid var(--border-color-strong);
       border-radius: 6px;
       overflow: hidden;
     }
@@ -376,13 +449,13 @@
       justify-content: space-between;
       align-items: center;
       padding: 12px 15px;
-      background: #f9f9f9;
+      background: var(--bg-tertiary);
       cursor: pointer;
       user-select: none;
     }
     .collapse-icon {
       font-size: 18px;
-      color: #666;
+      color: var(--text-secondary);
       transition: transform 0.3s;
     }
     .collapse-icon.expanded {
@@ -390,7 +463,7 @@
     }
     .collapsible-content {
       padding: 15px;
-      background: white;
+      background: var(--bg-primary);
       max-height: 0;
       overflow: hidden;
       transition: max-height 0.3s ease-out;
@@ -408,7 +481,7 @@
     }
     input, select, button {
       padding: 12px 16px;
-      border: 1px solid #ddd;
+      border: 1px solid var(--border-color-strong);
       border-radius: 4px;
       font-size: 16px;
       font-family: inherit;
@@ -416,10 +489,13 @@
     input {
       flex: 1;
       min-width: 150px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
     }
     select {
       min-width: 120px;
-      background: white;
+      background: var(--bg-primary);
+      color: var(--text-primary);
       cursor: pointer;
     }
     button {
@@ -431,10 +507,10 @@
       transition: background 0.2s;
     }
     button:hover:not(:disabled) {
-      background: #45a049;
+      background: var(--color-green-hover);
     }
     button:disabled {
-      background: #ccc;
+      background: var(--color-gray-disabled);
       cursor: not-allowed;
     }
     .controls {
@@ -458,7 +534,7 @@
       left: 0;
       height: 100%;
       width: 0%;
-      background: rgba(255, 255, 255, 0.3);
+      background: var(--btn-overlay);
       transition: none;
       pointer-events: none;
     }
@@ -474,7 +550,7 @@
       background: #0b7dda;
     }
     button.reveal:disabled {
-      background: #90caf9;
+      background: var(--color-blue-disabled);
       cursor: not-allowed;
       opacity: 0.6;
     }
@@ -506,7 +582,7 @@
     }
     .participants h2 {
       font-size: 18px;
-      color: #666;
+      color: var(--text-secondary);
       margin-bottom: 15px;
       display: flex;
       justify-content: space-between;
@@ -518,13 +594,13 @@
       align-items: center;
       padding: 12px 16px;
       margin: 8px 0;
-      background: #f9f9f9;
+      background: var(--bg-tertiary);
       border-radius: 4px;
       border-left: 4px solid #4CAF50;
     }
     .participant-name {
       font-weight: 500;
-      color: #333;
+      color: var(--text-primary);
     }
     .participant-status {
       color: #4CAF50;
@@ -541,19 +617,19 @@
     .empty-state {
       text-align: center;
       padding: 40px;
-      color: #999;
+      color: var(--text-muted);
     }
     .vote-distribution {
       margin-top: 20px;
       padding: 15px;
-      background: #f8f9fa;
+      background: var(--bg-secondary);
       border-radius: 6px;
-      border: 1px solid #e9ecef;
+      border: 1px solid var(--border-color);
     }
     .distribution-header {
       font-size: 14px;
       font-weight: 600;
-      color: #495057;
+      color: var(--text-secondary);
       margin-bottom: 10px;
       text-align: center;
     }
@@ -568,14 +644,14 @@
       align-items: center;
       gap: 6px;
       padding: 8px 14px;
-      background: white;
+      background: var(--bg-primary);
       border-radius: 20px;
-      border: 1px solid #dee2e6;
+      border: 1px solid var(--border-color);
       font-size: 14px;
       transition: all 0.2s ease;
     }
     .distribution-item.winner {
-      background: #e8f5e9;
+      background: var(--color-green-light);
       border-color: #4CAF50;
       box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
     }
@@ -587,27 +663,34 @@
       text-align: center;
     }
     .distribution-item.winner .distribution-value {
-      color: #2e7d32;
+      color: var(--color-green-dark-text);
     }
     .distribution-separator {
-      color: #aaa;
+      color: var(--text-muted);
       font-size: 12px;
     }
     .distribution-item.winner .distribution-separator {
-      color: #81c784;
+      color: var(--color-win-separator);
     }
     .distribution-count {
-      color: #666;
+      color: var(--text-secondary);
       font-size: 13px;
       font-weight: 500;
     }
     .distribution-item.winner .distribution-count {
-      color: #2e7d32;
+      color: var(--color-green-dark-text);
       font-weight: 600;
     }
     .winner-badge {
       font-size: 11px;
       margin-left: 4px;
+      display: inline-block;
+      animation: winner-bounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+    @keyframes winner-bounce {
+      0%   { opacity: 0; transform: scale(0) rotate(-20deg); }
+      60%  { transform: scale(1.3) rotate(8deg); }
+      100% { opacity: 1; transform: scale(1) rotate(0deg); }
     }
     .status-indicator {
       position: fixed;
@@ -629,48 +712,48 @@
     .status-indicator.error {
       background: #f44336;
     }
-    
+
     /* JIRA Image Styles */
     .jira-image-container {
       margin: 15px 0;
       text-align: center;
-      border: 1px solid #ddd;
+      border: 1px solid var(--border-color-strong);
       border-radius: 6px;
       padding: 10px;
-      background: #f9f9f9;
+      background: var(--bg-tertiary);
     }
-    
+
     .jira-image {
       max-width: 100%;
       height: auto;
       border-radius: 4px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      box-shadow: 0 2px 8px var(--shadow-overlay);
       cursor: pointer;
       transition: transform 0.2s ease;
     }
-    
+
     .jira-image:hover {
       transform: scale(1.02);
     }
-    
+
     .jira-attachment, .jira-external-media {
       margin: 10px 0;
       padding: 8px 12px;
-      background: #e3f2fd;
+      background: var(--color-blue-light);
       border-left: 4px solid #2196F3;
       border-radius: 4px;
     }
-    
+
     .attachment-link {
       color: #1976D2;
       text-decoration: none;
       font-weight: 500;
     }
-    
+
     .attachment-link:hover {
       text-decoration: underline;
     }
-    
+
     .media-group {
       display: flex;
       flex-wrap: wrap;
@@ -680,7 +763,7 @@
 
     .image-caption {
       font-size: 12px;
-      color: #666;
+      color: var(--text-secondary);
       text-align: center;
       margin-top: 5px;
       word-break: break-word;
@@ -693,17 +776,17 @@
     .attachments-list .jira-attachment {
       margin: 5px 0;
     }
-    
+
     .media-single {
       margin: 10px 0;
     }
-    
+
     .jira-media-error, .jira-media-unknown {
       padding: 8px;
-      background: #ffebee;
+      background: var(--color-red-bg);
       border: 1px solid #f44336;
       border-radius: 4px;
-      color: #c62828;
+      color: var(--color-red-dark);
       font-style: italic;
     }
     /* Tickets Sidebar Styles */
@@ -713,17 +796,17 @@
       top: 0;
       width: 320px;
       height: 100vh;
-      background: white;
-      border-right: 2px solid #ddd;
+      background: var(--bg-sidebar);
+      border-right: 2px solid var(--border-color-strong);
       display: flex;
       flex-direction: column;
       z-index: 100;
-      box-shadow: 2px 0 8px rgba(0,0,0,0.1);
+      box-shadow: 2px 0 8px var(--shadow-overlay);
     }
     .sidebar-header {
       padding: 20px;
-      border-bottom: 2px solid #2196F3;
-      background: #e3f2fd;
+      border-bottom: 2px solid var(--border-color-accent);
+      background: var(--bg-sidebar-header);
     }
     .sidebar-header h3 {
       margin: 0 0 8px 0;
@@ -732,7 +815,7 @@
     }
     .tickets-count {
       font-size: 14px;
-      color: #666;
+      color: var(--text-secondary);
       font-weight: 500;
     }
     .tickets-list-toolbar {
@@ -743,12 +826,12 @@
       justify-content: flex-end;
       padding: 4px 2px 10px;
       margin-bottom: 4px;
-      background: linear-gradient(to bottom, #fff 70%, rgba(255,255,255,0));
+      background: var(--gradient-toolbar);
     }
     .clear-tickets-btn {
       background: transparent;
-      border: 1px solid #ccc;
-      color: #666;
+      border: 1px solid var(--color-gray-disabled);
+      color: var(--text-secondary);
       font-size: 11px;
       font-weight: 600;
       padding: 4px 10px;
@@ -757,9 +840,9 @@
       transition: all 0.15s ease;
     }
     .clear-tickets-btn:hover {
-      background: #ffebee;
-      border-color: #c62828;
-      color: #c62828;
+      background: var(--color-red-bg);
+      border-color: var(--color-red-dark);
+      color: var(--color-red-dark);
     }
     .tickets-list {
       flex: 1;
@@ -770,9 +853,9 @@
       position: relative;
       padding: 12px;
       margin-bottom: 8px;
-      background: #f9f9f9;
+      background: var(--bg-tertiary);
       border-radius: 6px;
-      border-left: 4px solid #ddd;
+      border-left: 4px solid var(--border-color-strong);
       cursor: pointer;
       transition: all 0.2s ease;
     }
@@ -801,16 +884,16 @@
       opacity: 1;
     }
     .ticket-item-remove:hover {
-      background: #ffebee;
-      color: #c62828;
+      background: var(--color-red-bg);
+      color: var(--color-red-dark);
     }
     .ticket-item:hover {
-      background: #f0f7ff;
+      background: var(--bg-hover);
       border-left-color: #2196F3;
       transform: translateX(4px);
     }
     .ticket-item.active {
-      background: #e3f2fd;
+      background: var(--color-blue-light);
       border-left-color: #2196F3;
       box-shadow: 0 2px 6px rgba(33, 150, 243, 0.3);
     }
@@ -823,7 +906,7 @@
     }
     .ticket-item-summary {
       font-size: 13px;
-      color: #555;
+      color: var(--text-primary);
       line-height: 1.4;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -837,7 +920,7 @@
       align-items: center;
       margin-top: 6px;
       font-size: 11px;
-      color: #999;
+      color: var(--text-muted);
     }
     .ticket-item-votes {
       background: #4CAF50;
@@ -857,7 +940,7 @@
       justify-content: center;
       margin: 20px 0;
       padding: 16px;
-      background: #f5f5f5;
+      background: var(--bg-secondary);
       border-radius: 8px;
     }
     .nav-button {
@@ -877,14 +960,14 @@
       box-shadow: 0 2px 6px rgba(33, 150, 243, 0.4);
     }
     .nav-button:disabled {
-      background: #ccc;
+      background: var(--color-gray-disabled);
       cursor: not-allowed;
       opacity: 0.6;
     }
     .ticket-position {
       font-size: 16px;
       font-weight: 600;
-      color: #666;
+      color: var(--text-secondary);
       min-width: 80px;
       text-align: center;
     }
@@ -904,7 +987,7 @@
       flex: 1;
       padding: 7px 12px;
       border: 2px solid #2196F3;
-      background: white;
+      background: var(--bg-primary);
       color: #2196F3;
       font-size: 13px;
       font-weight: 600;
@@ -926,11 +1009,173 @@
       color: white;
     }
     .sidebar-tab:hover:not(.active) {
-      background: #e3f2fd;
+      background: var(--color-blue-light);
+    }
+    .theme-toggle {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      background: none;
+      border: 1px solid var(--border-color-strong);
+      border-radius: 20px;
+      padding: 4px 10px;
+      font-size: 16px;
+      cursor: pointer;
+      color: var(--text-secondary);
+      line-height: 1;
+      transition: border-color 0.2s;
+    }
+    .theme-toggle:hover {
+      border-color: var(--color-blue);
+    }
+    .sidebar-header {
+      position: relative;
+    }
+    .connection-pill {
+      display: none;
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      z-index: 1000;
+      box-shadow: 0 2px 8px var(--shadow-overlay);
+      animation: pill-pulse 1.5s ease-in-out infinite;
+    }
+    .connection-pill.reconnecting {
+      display: block;
+      background: #fff3e0;
+      color: #e65100;
+      border: 1px solid #ff9800;
+    }
+    .connection-pill.disconnected {
+      display: block;
+      background: #ffebee;
+      color: #c62828;
+      border: 1px solid #f44336;
+      animation: none;
+    }
+    @keyframes pill-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+    @keyframes card-flip-in {
+      0%   { opacity: 0; transform: rotateY(90deg) scale(0.8); }
+      100% { opacity: 1; transform: rotateY(0deg) scale(1); }
+    }
+    .participant.reveal-animate {
+      animation: card-flip-in 0.3s ease-out forwards;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .btn-spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    .hamburger-btn {
+      display: none;
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 200;
+      background: #2196F3;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 18px;
+      cursor: pointer;
+      box-shadow: 0 2px 8px var(--shadow-overlay);
+    }
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 99;
+    }
+    @media (max-width: 640px) {
+      body {
+        margin-left: 0 !important;
+      }
+      .tickets-sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        z-index: 150;
+      }
+      .tickets-sidebar.sidebar-open {
+        transform: translateX(0);
+      }
+      .hamburger-btn {
+        display: block;
+      }
+      .sidebar-overlay.overlay-visible {
+        display: block;
+      }
+    }
+    .save-to-jira {
+      margin-top: 16px;
+      padding: 16px;
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .save-to-jira label {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+    .save-to-jira select {
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color-strong);
+      font-size: 14px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+    }
+    .save-to-jira-btn {
+      padding: 8px 18px;
+      background: #2196F3;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .save-to-jira-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .save-to-jira-btn.saved {
+      background: #4CAF50;
+    }
+    .save-to-jira-error {
+      font-size: 13px;
+      color: #f44336;
+      width: 100%;
     }
   </style>
 </head>
 <body>
+  <button class="hamburger-btn" id="hamburgerBtn" aria-label="Open ticket list">☰</button>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
   <div class="status-indicator" id="statusIndicator">Connected</div>
 
   <!-- Tickets Sidebar -->
@@ -942,6 +1187,7 @@
         <button class="sidebar-tab" id="asyncTab">Async</button>
       </div>
       <span class="tickets-count" id="ticketsCount">0 tickets</span>
+      <button class="theme-toggle" id="themeToggle" title="Toggle dark mode">🌙</button>
     </div>
     <div class="tickets-list" id="ticketsList">
       <div style="text-align: center; padding: 40px 20px; color: #999; font-style: italic;">
@@ -1126,6 +1372,29 @@
       }, duration);
     }
 
+    function setConnectionPill(state) {
+      var pill = document.getElementById('connectionPill');
+      pill.className = 'connection-pill';
+      if (state === 'reconnecting') {
+        pill.className = 'connection-pill reconnecting';
+        pill.textContent = '⟳ Reconnecting…';
+      } else if (state === 'disconnected') {
+        pill.className = 'connection-pill disconnected';
+        pill.textContent = '✕ Connection lost — refresh to rejoin';
+      }
+      // 'connected' state: pill stays hidden (display: none via base class)
+    }
+
+    function setButtonLoading(btn, loading, originalText) {
+      if (loading) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="btn-spinner"></span>' + (originalText || btn.textContent);
+      } else {
+        btn.disabled = false;
+        btn.textContent = originalText || btn.textContent;
+      }
+    }
+
     function escapeHtml(text) {
       const div = document.createElement('div');
       div.textContent = text;
@@ -1300,13 +1569,29 @@
       const display = document.getElementById("ticketDisplay");
       const html = generateTicketHtml(state.ticketData, '');
       if (!html) {
+        display.classList.remove("fading-in");
+        display.style.opacity = '';
         display.innerHTML = '<span>No ticket loaded - Load sprint or enter a JIRA ticket to begin</span>';
         display.classList.add("empty");
         return;
       }
       display.classList.remove("empty");
       const wasExpanded = document.getElementById('TechnicalWriteupContent')?.classList.contains('expanded');
+      const ticketChanged = display.dataset.ticketId !== (state.ticketId || '');
+      display.dataset.ticketId = state.ticketId || '';
+      if (ticketChanged) {
+        display.style.transition = 'none';
+        display.style.opacity = '0';
+      }
       display.innerHTML = html;
+      if (ticketChanged) {
+        requestAnimationFrame(function() {
+          requestAnimationFrame(function() {
+            display.style.transition = 'opacity 0.25s ease';
+            display.style.opacity = '1';
+          });
+        });
+      }
       if (wasExpanded) {
         document.getElementById('TechnicalWriteupContent')?.classList.add('expanded');
         document.getElementById('TechCollapseIcon')?.classList.add('expanded');
@@ -1324,13 +1609,18 @@
       const revealBtn = document.getElementById("revealBtn");
       const clearBtn = document.getElementById("clearBtn");
       const hasVotes = state.votes && Object.keys(state.votes).length > 0;
-      
+
+      // Reset animation flag when votes are cleared
+      if (!state.revealed) {
+        list.dataset.animationPlayed = '';
+      }
+
       // Enable/disable buttons based on vote state
       // Only disable when no votes - don't disable based on revealed state
       // (someone could vote after reveal, and we should be able to reveal again)
       revealBtn.disabled = !hasVotes;
       clearBtn.disabled = !hasVotes;
-      
+
       if (!hasVotes) {
         list.innerHTML = '<div class="empty-state">No votes yet</div>';
         return;
@@ -1377,6 +1667,45 @@
       }
 
       list.innerHTML = html;
+
+      // Stagger animation when votes are first revealed (not on subsequent re-renders)
+      if (state.revealed && !list.dataset.animationPlayed) {
+        list.dataset.animationPlayed = 'true';
+        var cards = list.querySelectorAll('.participant');
+        cards.forEach(function(card, i) {
+          card.style.opacity = '0';
+          card.style.animationDelay = (i * 50) + 'ms';
+          card.classList.add('reveal-animate');
+        });
+      }
+
+      // Save to Jira section (only when revealed and a Jira ticket is loaded)
+      var existingSaveSection = document.getElementById('saveToJiraSection');
+      if (existingSaveSection) existingSaveSection.remove();
+
+      var currentTicket = state.tickets && state.tickets[state.currentTicketIndex];
+      if (state.revealed && currentTicket && currentTicket.key) {
+        var distribution = getVoteDistribution();
+        var modalVote = distribution.length > 0
+          ? distribution.reduce(function(a, b) { return b.count > a.count ? b : a; }).value
+          : '';
+
+        var options = ['0','1','2','3','5','8','13','21'].map(function(v) {
+          return '<option value="' + v + '"' + (v === modalVote ? ' selected' : '') + '>' + v + '</option>';
+        }).join('');
+
+        var saveSection = document.createElement('div');
+        saveSection.className = 'save-to-jira';
+        saveSection.id = 'saveToJiraSection';
+        saveSection.innerHTML =
+          '<label>Final estimate:</label>' +
+          '<select id="finalPointsSelect">' + options + '</select>' +
+          '<button class="save-to-jira-btn" id="saveToJiraBtn">Save to Jira</button>' +
+          '<span class="save-to-jira-error" id="saveToJiraError"></span>';
+
+        document.querySelector('.participants').appendChild(saveSection);
+        document.getElementById('saveToJiraBtn').addEventListener('click', saveToJira);
+      }
     }
 
     function getVoteDistribution(votesOverride) {
@@ -1896,6 +2225,7 @@
           connected() {
             console.log("[WebSocket] Connected");
             state.isConnected = true;
+            setConnectionPill('connected');
             state.lastHeartbeat = Date.now();
             updateConnectionStatus(true);
             showStatus("Connected");
@@ -1913,6 +2243,7 @@
           disconnected() {
             console.log("[WebSocket] Disconnected");
             state.isConnected = false;
+            setConnectionPill('reconnecting');
             updateConnectionStatus(false);
             
             // Clear timers
@@ -2020,6 +2351,7 @@
     function attemptReconnection() {
       if (state.reconnectAttempts >= state.maxReconnectAttempts) {
         console.error("[Reconnection] Max attempts reached");
+        setConnectionPill('disconnected');
         showStatus("Connection failed. Please refresh the page.", true, 0);
         return;
       }
@@ -2080,8 +2412,7 @@
         return;
       }
 
-      btn.disabled = true;
-      btn.textContent = "Loading...";
+      setButtonLoading(btn, true, "Load Sprint");
 
       try {
         const response = await fetch("/estimations/fetch_sprint_tickets", {
@@ -2103,8 +2434,7 @@
         console.error(`[Sprint] Error: ${error.message}`);
         showStatus(error.message, true);
       } finally {
-        btn.disabled = false;
-        btn.textContent = "Load Sprint";
+        setButtonLoading(btn, false, "Load Sprint");
       }
     });
 
@@ -2122,8 +2452,7 @@
         return;
       }
 
-      btn.disabled = true;
-      btn.textContent = "Fetching...";
+      setButtonLoading(btn, true, "Fetch Ticket");
 
       try {
         const response = await fetch("/estimations/fetch_jira_ticket", {
@@ -2146,10 +2475,46 @@
         console.error(`[JIRA] Error: ${error.message}`);
         showStatus(error.message, true);
       } finally {
-        btn.disabled = false;
-        btn.textContent = "Fetch Ticket";
+        setButtonLoading(btn, false, "Fetch Ticket");
       }
     });
+
+    async function saveToJira() {
+      var btn = document.getElementById('saveToJiraBtn');
+      var errorEl = document.getElementById('saveToJiraError');
+      var points = document.getElementById('finalPointsSelect').value;
+      var ticketKey = state.tickets && state.tickets[state.currentTicketIndex] && state.tickets[state.currentTicketIndex].key;
+
+      if (!ticketKey) return;
+
+      errorEl.textContent = '';
+      setButtonLoading(btn, true, 'Save to Jira');
+
+      try {
+        var response = await fetch('/estimations/save_story_points', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken
+          },
+          body: JSON.stringify({ ticket_key: ticketKey, points: points })
+        });
+
+        var result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Failed to save story points');
+
+        btn.textContent = 'Saved ✓';
+        btn.classList.add('saved');
+        setTimeout(function() {
+          btn.classList.remove('saved');
+          setButtonLoading(btn, false, 'Save to Jira');
+        }, 3000);
+
+      } catch (err) {
+        setButtonLoading(btn, false, 'Save to Jira');
+        errorEl.textContent = err.message;
+      }
+    }
 
     // Navigation button handlers
     document.getElementById("prevTicketBtn").addEventListener("click", () => {
@@ -2489,7 +2854,7 @@
         const sprintName = document.getElementById('asyncSprintName').value.trim();
         const btn = document.getElementById('asyncFetchSprintBtn');
         if (!sprintName) { alert('Please enter a sprint name'); return; }
-        btn.disabled = true; btn.textContent = 'Loading...';
+        setButtonLoading(btn, true, 'Load Sprint');
         try {
           const response = await fetch('/estimations/async_fetch_sprint_tickets', {
             method: 'POST',
@@ -2505,7 +2870,7 @@
         } catch (error) {
           showStatus(error.message, true);
         } finally {
-          btn.disabled = false; btn.textContent = 'Load Sprint';
+          setButtonLoading(btn, false, 'Load Sprint');
         }
       });
 
@@ -2513,7 +2878,7 @@
         const jiraInput = document.getElementById('asyncJiraTicket').value.trim();
         const btn = document.getElementById('asyncFetchJiraBtn');
         if (!jiraInput) { alert('Please enter a JIRA ticket key or URL'); return; }
-        btn.disabled = true; btn.textContent = 'Fetching...';
+        setButtonLoading(btn, true, 'Fetch Ticket');
         try {
           const response = await fetch('/estimations/async_fetch_jira_ticket', {
             method: 'POST',
@@ -2530,7 +2895,7 @@
         } catch (error) {
           showStatus(error.message, true);
         } finally {
-          btn.disabled = false; btn.textContent = 'Fetch Ticket';
+          setButtonLoading(btn, false, 'Fetch Ticket');
         }
       });
 
@@ -2660,11 +3025,50 @@
       });
     }
 
+    (function() {
+      var btn = document.getElementById('themeToggle');
+      function applyTheme(theme) {
+        if (theme === 'dark') {
+          document.documentElement.setAttribute('data-theme', 'dark');
+          btn.textContent = '☀️';
+        } else {
+          document.documentElement.removeAttribute('data-theme');
+          btn.textContent = '🌙';
+        }
+      }
+      // Apply on load (theme may already be set from head script)
+      applyTheme(localStorage.getItem('ppTheme') || 'light');
+      btn.addEventListener('click', function() {
+        var next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        localStorage.setItem('ppTheme', next);
+        applyTheme(next);
+      });
+    })();
+
+    (function() {
+      var hamburger = document.getElementById('hamburgerBtn');
+      var sidebar = document.querySelector('.tickets-sidebar');
+      var overlay = document.getElementById('sidebarOverlay');
+
+      function openSidebar() {
+        sidebar.classList.add('sidebar-open');
+        overlay.classList.add('overlay-visible');
+      }
+      function closeSidebar() {
+        sidebar.classList.remove('sidebar-open');
+        overlay.classList.remove('overlay-visible');
+      }
+
+      hamburger.addEventListener('click', openSidebar);
+      overlay.addEventListener('click', closeSidebar);
+    })();
+
     // Start the application
     init();
-    
+
     // Add image handlers after initial render
     setTimeout(addImageClickHandlers, 1000);
   </script>
+<div class="connection-pill" id="connectionPill"></div>
 </body>
 </html>

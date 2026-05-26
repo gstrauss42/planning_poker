@@ -126,6 +126,27 @@ class EstimationsController < ApplicationController
     end
   end
 
+  def save_story_points
+    ticket_key = params[:ticket_key]
+    points = params[:points]
+
+    if ticket_key.blank? || points.nil?
+      render json: { error: "ticket_key and points are required" }, status: :bad_request
+      return
+    end
+
+    jira = JiraService.new
+    jira.update_story_points(ticket_key, points)
+    render json: { success: true, message: "Story points saved" }
+
+  rescue JiraService::JiraError => e
+    render json: { error: e.message }, status: :unprocessable_entity
+
+  rescue StandardError => e
+    Rails.logger.error "[Controller] Unexpected error saving story points: #{e.message}"
+    render json: { error: "An unexpected error occurred." }, status: :internal_server_error
+  end
+
   def fetch_jira_ticket
     jira_input = params[:jira_input]
 

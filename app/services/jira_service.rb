@@ -12,6 +12,10 @@ class JiraService
     # Optional: Custom field IDs for acceptance criteria and technical writeup
     @acceptance_criteria_field = Rails.application.credentials.dig(:jira, :acceptance_criteria_field)
     @technical_writeup_field = Rails.application.credentials.dig(:jira, :technical_writeup_field)
+    # Optional: Custom field ID for story points (e.g. "customfield_10016").
+    # Next-gen Jira projects use "story_points" directly.
+    # Add story_points_field to your jira credentials to configure.
+    @story_points_field = Rails.application.credentials.dig(:jira, :story_points_field) || "customfield_10004"
 
     validate_credentials!
   end
@@ -140,6 +144,26 @@ class JiraService
   rescue StandardError => e
     Rails.logger.error("JIRA API Error: #{e.message}")
     raise JiraError, "Failed to fetch ticket: #{e.message}"
+  end
+
+  def update_story_points(ticket_key, points)
+    raise JiraError, "Ticket key is required" if ticket_key.blank?
+    raise JiraError, "Points value is required" if points.nil?
+
+    url = "#{@base_url}/rest/api/3/issue/#{ticket_key}"
+    numeric_points = points.to_s == "?" ? nil : points.to_f
+
+    body = { fields: { @story_points_field => numeric_points } }
+
+    response = HTTParty.put(
+      url,
+      basic_auth: { username: @email, password: @api_token },
+      headers: { "Content-Type" => "application/json" },
+      body: JSON.generate(body)
+    )
+
+    return true if response.success?
+    handle_error_response(response)
   end
 
   private
